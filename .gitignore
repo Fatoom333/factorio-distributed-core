@@ -1,2 +1,11 @@
 /target
 .idea/
+# окружение замеров — никогда не в репо
+bench-env/
+rcon-password.txt
+config*.ini
+server-settings.json
+script-output/
+*.png
+*.zip
+*.log
