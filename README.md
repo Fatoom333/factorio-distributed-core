@@ -15,4 +15,4 @@
 
 ## Лицензия
 
-MIT, см. [LICENSE](LICENSE).
+Apache-2.0, см. [LICENSE](LICENSE). Автор — Tartaluga; при распространении копий и переделок файл [NOTICE](NOTICE) нужно сохранять.
