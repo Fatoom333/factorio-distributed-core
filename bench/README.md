@@ -7,11 +7,11 @@
 ```powershell
 # 1. Отдельное окружение Factorio (свои сейвы/моды не трогает) — один раз
 .\bench\setup-env.ps1
-# 2. Сервер без окна, RCON на 127.0.0.1:27015 (или клиент с окном: .benchun-client.ps1, затем хост из меню)
+# 2. Сервер без окна, RCON на 127.0.0.1:27015 (или клиент с окном: .enchun-client.ps1, затем хост из меню)
 .\bench\run-server.ps1
 # 3. В другом окне — замер
 # пароль и script-output берутся из ..\bench-env (другое место — $env:FD_ENV_DIR)
-cargo run --release --bin rcon_bench -- all   # или transport / events
+cargo run --release --bin rcon_bench -- all   # или transport / events / freeze / insert
 ```
 
 Окружение создаётся в `../bench-env` (рядом с репозиториями, не в git): свой `config.ini`,
