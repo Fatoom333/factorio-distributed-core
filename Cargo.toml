@@ -1,0 +1,8 @@
+[package]
+name = "factorio-distributed-core"
+version = "0.0.1"
+edition = "2021"
+description = "Серверное ядро: распределённая симуляция мира Factorio, клиенты-визуализаторы через RCON"
+publish = false
+
+[dependencies]
