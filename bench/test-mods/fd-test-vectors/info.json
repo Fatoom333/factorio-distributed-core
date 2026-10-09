@@ -1,0 +1,9 @@
+{
+  "name": "fd-test-vectors",
+  "version": "0.0.1",
+  "title": "FD test: custom inserter vectors",
+  "author": "Tartaluga",
+  "factorio_version": "2.0",
+  "description": "Test-only mod for the fidelity fuzzer: lets scripts change pickup_position/drop_position of inserters. Not part of the connector mod.",
+  "dependencies": ["base >= 2.0"]
+}

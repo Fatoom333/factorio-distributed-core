@@ -1,0 +1,46 @@
+{
+ "name": "p10-chain",
+ "ticks": 600,
+ "entities": [
+  {
+   "name": "wooden-chest",
+   "position": [
+    0.5,
+    0.5
+   ],
+   "items": {
+    "iron-plate": 20
+   }
+  },
+  {
+   "name": "inserter",
+   "position": [
+    1.5,
+    0.5
+   ],
+   "direction": "west"
+  },
+  {
+   "name": "wooden-chest",
+   "position": [
+    2.5,
+    0.5
+   ]
+  },
+  {
+   "name": "inserter",
+   "position": [
+    3.5,
+    0.5
+   ],
+   "direction": "west"
+  },
+  {
+   "name": "wooden-chest",
+   "position": [
+    4.5,
+    0.5
+   ]
+  }
+ ]
+}

@@ -1,0 +1,103 @@
+{
+ "name": "p5-sinkperp-north",
+ "ticks": 600,
+ "entities": [
+  {
+   "name": "wooden-chest",
+   "position": [
+    3.5,
+    2.5
+   ],
+   "items": {
+    "iron-plate": 50
+   }
+  },
+  {
+   "name": "inserter",
+   "position": [
+    4.5,
+    2.5
+   ],
+   "direction": "west"
+  },
+  {
+   "name": "transport-belt",
+   "position": [
+    5.5,
+    -3.5
+   ],
+   "direction": "north"
+  },
+  {
+   "name": "transport-belt",
+   "position": [
+    5.5,
+    -2.5
+   ],
+   "direction": "north"
+  },
+  {
+   "name": "transport-belt",
+   "position": [
+    5.5,
+    -1.5
+   ],
+   "direction": "north"
+  },
+  {
+   "name": "transport-belt",
+   "position": [
+    5.5,
+    -0.5
+   ],
+   "direction": "north"
+  },
+  {
+   "name": "transport-belt",
+   "position": [
+    5.5,
+    0.5
+   ],
+   "direction": "north"
+  },
+  {
+   "name": "transport-belt",
+   "position": [
+    5.5,
+    1.5
+   ],
+   "direction": "north"
+  },
+  {
+   "name": "transport-belt",
+   "position": [
+    5.5,
+    2.5
+   ],
+   "direction": "north"
+  },
+  {
+   "name": "transport-belt",
+   "position": [
+    5.5,
+    3.5
+   ],
+   "direction": "north"
+  },
+  {
+   "name": "inserter",
+   "position": [
+    6.5,
+    -1.5
+   ],
+   "direction": "west"
+  },
+  {
+   "name": "wooden-chest",
+   "position": [
+    7.5,
+    -1.5
+   ]
+  }
+ ]
+}

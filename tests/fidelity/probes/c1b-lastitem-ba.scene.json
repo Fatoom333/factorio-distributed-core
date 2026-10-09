@@ -1,0 +1,46 @@
+{
+ "name": "c1b-lastitem-ba",
+ "ticks": 300,
+ "entities": [
+  {
+   "name": "wooden-chest",
+   "position": [
+    0.5,
+    0.5
+   ],
+   "items": {
+    "iron-plate": 1
+   }
+  },
+  {
+   "name": "inserter",
+   "position": [
+    1.5,
+    0.5
+   ],
+   "direction": "west"
+  },
+  {
+   "name": "inserter",
+   "position": [
+    -0.5,
+    0.5
+   ],
+   "direction": "east"
+  },
+  {
+   "name": "wooden-chest",
+   "position": [
+    -1.5,
+    0.5
+   ]
+  },
+  {
+   "name": "wooden-chest",
+   "position": [
+    2.5,
+    0.5
+   ]
+  }
+ ]
+}

@@ -1,5 +1,5 @@
 # Starts the benchmark server (run setup-env.ps1 first). Stop it with Ctrl+C.
-# Game port and RCON listen on 127.0.0.1 only.
+# Game port (-Port) and RCON (-RconPort) listen on 127.0.0.1 only; change both to run a second server.
 # -Save / -ModDirectory: another save and mod set, e.g. the megabase without Space Age:
 #   .\bench\run-server.ps1 -Save ..\bench-env\megabase\VTN_by_PMAP_Megabase2k.zip -ModDirectory ..\bench-env\mods-mega
 param(
@@ -7,7 +7,8 @@ param(
     [string]$EnvDir = (Join-Path $PSScriptRoot "..\..\bench-env"),
     [string]$Save = "",
     [string]$ModDirectory = "",
-    [int]$RconPort = 27015
+    [int]$RconPort = 27015,
+    [int]$Port = 34197
 )
 $ErrorActionPreference = "Stop"
 $EnvDir = (Resolve-Path $EnvDir).Path
@@ -22,6 +23,7 @@ if ($ModDirectory) { $modArgs = @("--mod-directory", (Resolve-Path $ModDirectory
     --start-server $Save `
     --server-settings "$EnvDir\server-settings.json" `
     --bind 127.0.0.1 `
+    --port $Port `
     --rcon-bind "127.0.0.1:$RconPort" `
     --rcon-password $password `
     @modArgs

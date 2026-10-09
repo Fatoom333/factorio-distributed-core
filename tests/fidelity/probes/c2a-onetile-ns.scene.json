@@ -1,0 +1,102 @@
+{
+ "name": "c2a-onetile-ns",
+ "ticks": 600,
+ "entities": [
+  {
+   "name": "wooden-chest",
+   "position": [
+    0.5,
+    -1.5
+   ],
+   "items": {
+    "iron-plate": 50
+   }
+  },
+  {
+   "name": "inserter",
+   "position": [
+    0.5,
+    -0.5
+   ],
+   "direction": "north"
+  },
+  {
+   "name": "transport-belt",
+   "position": [
+    0.5,
+    0.5
+   ],
+   "direction": "east"
+  },
+  {
+   "name": "transport-belt",
+   "position": [
+    1.5,
+    0.5
+   ],
+   "direction": "east"
+  },
+  {
+   "name": "transport-belt",
+   "position": [
+    2.5,
+    0.5
+   ],
+   "direction": "east"
+  },
+  {
+   "name": "transport-belt",
+   "position": [
+    3.5,
+    0.5
+   ],
+   "direction": "east"
+  },
+  {
+   "name": "transport-belt",
+   "position": [
+    4.5,
+    0.5
+   ],
+   "direction": "east"
+  },
+  {
+   "name": "transport-belt",
+   "position": [
+    5.5,
+    0.5
+   ],
+   "direction": "east"
+  },
+  {
+   "name": "inserter",
+   "position": [
+    3.5,
+    -0.5
+   ],
+   "direction": "south"
+  },
+  {
+   "name": "inserter",
+   "position": [
+    3.5,
+    1.5
+   ],
+   "direction": "north"
+  },
+  {
+   "name": "wooden-chest",
+   "position": [
+    3.5,
+    -1.5
+   ]
+  },
+  {
+   "name": "wooden-chest",
+   "position": [
+    3.5,
+    2.5
+   ]
+  }
+ ]
+}

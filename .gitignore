@@ -9,3 +9,5 @@ script-output/
 *.png
 *.zip
 *.log
+bench-env*/
+fuzz-runs/

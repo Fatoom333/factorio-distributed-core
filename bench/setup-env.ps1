@@ -1,4 +1,4 @@
-# Prepares an isolated Factorio environment for the RCON benchmark (TAR-166).
+# Prepares an isolated Factorio environment for the RCON benchmark.
 # Your normal saves, mods and settings in %APPDATA%\Factorio are not touched:
 # the benchmark server uses its own write-data folder ($EnvDir).
 param(

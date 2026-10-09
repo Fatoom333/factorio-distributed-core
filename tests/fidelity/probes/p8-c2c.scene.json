@@ -1,0 +1,106 @@
+{
+ "name": "p8-c2c",
+ "ticks": 600,
+ "entities": [
+  {
+   "name": "wooden-chest",
+   "position": [
+    0.5,
+    0.5
+   ],
+   "items": {
+    "iron-plate": 30
+   }
+  },
+  {
+   "name": "inserter",
+   "position": [
+    1.5,
+    0.5
+   ],
+   "direction": "west"
+  },
+  {
+   "name": "wooden-chest",
+   "position": [
+    2.5,
+    0.5
+   ]
+  },
+  {
+   "name": "wooden-chest",
+   "position": [
+    5.5,
+    0.5
+   ],
+   "items": {
+    "copper-plate": 30
+   }
+  },
+  {
+   "name": "inserter",
+   "position": [
+    5.5,
+    1.5
+   ],
+   "direction": "north"
+  },
+  {
+   "name": "wooden-chest",
+   "position": [
+    5.5,
+    2.5
+   ]
+  },
+  {
+   "name": "wooden-chest",
+   "position": [
+    9.5,
+    2.5
+   ],
+   "items": {
+    "copper-plate": 30
+   }
+  },
+  {
+   "name": "inserter",
+   "position": [
+    9.5,
+    1.5
+   ],
+   "direction": "south"
+  },
+  {
+   "name": "wooden-chest",
+   "position": [
+    9.5,
+    0.5
+   ]
+  },
+  {
+   "name": "wooden-chest",
+   "position": [
+    14.5,
+    0.5
+   ],
+   "items": {
+    "iron-plate": 30
+   }
+  },
+  {
+   "name": "inserter",
+   "position": [
+    13.5,
+    0.5
+   ],
+   "direction": "east"
+  },
+  {
+   "name": "wooden-chest",
+   "position": [
+    12.5,
+    0.5
+   ]
+  }
+ ]
+}

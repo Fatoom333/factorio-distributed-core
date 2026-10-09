@@ -1,0 +1,80 @@
+{
+ "name": "p3-dropnorth",
+ "ticks": 600,
+ "entities": [
+  {
+   "name": "wooden-chest",
+   "position": [
+    0.5,
+    0.5
+   ],
+   "items": {
+    "iron-plate": 50
+   }
+  },
+  {
+   "name": "inserter",
+   "position": [
+    1.5,
+    0.5
+   ],
+   "direction": "west"
+  },
+  {
+   "name": "transport-belt",
+   "position": [
+    2.5,
+    -2.5
+   ],
+   "direction": "north"
+  },
+  {
+   "name": "transport-belt",
+   "position": [
+    2.5,
+    -1.5
+   ],
+   "direction": "north"
+  },
+  {
+   "name": "transport-belt",
+   "position": [
+    2.5,
+    -0.5
+   ],
+   "direction": "north"
+  },
+  {
+   "name": "transport-belt",
+   "position": [
+    2.5,
+    0.5
+   ],
+   "direction": "north"
+  },
+  {
+   "name": "transport-belt",
+   "position": [
+    2.5,
+    1.5
+   ],
+   "direction": "north"
+  },
+  {
+   "name": "transport-belt",
+   "position": [
+    2.5,
+    2.5
+   ],
+   "direction": "north"
+  },
+  {
+   "name": "transport-belt",
+   "position": [
+    2.5,
+    3.5
+   ],
+   "direction": "north"
+  }
+ ]
+}

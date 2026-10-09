@@ -1,0 +1,3 @@
+# Эталоны из игры — как есть, концы строк LF (сравнение байт в байт со свежим снимком)
+tests/fidelity/**/*.jsonl -text
+tests/fidelity/**/*.scene.json text eol=lf

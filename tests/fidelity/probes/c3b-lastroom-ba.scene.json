@@ -1,0 +1,52 @@
+{
+ "name": "c3b-lastroom-ba",
+ "ticks": 300,
+ "entities": [
+  {
+   "name": "wooden-chest",
+   "position": [
+    0.5,
+    0.5
+   ],
+   "items": {
+    "iron-plate": 1599
+   }
+  },
+  {
+   "name": "wooden-chest",
+   "position": [
+    -1.5,
+    0.5
+   ],
+   "items": {
+    "iron-plate": 10
+   }
+  },
+  {
+   "name": "wooden-chest",
+   "position": [
+    2.5,
+    0.5
+   ],
+   "items": {
+    "iron-plate": 10
+   }
+  },
+  {
+   "name": "inserter",
+   "position": [
+    1.5,
+    0.5
+   ],
+   "direction": "east"
+  },
+  {
+   "name": "inserter",
+   "position": [
+    -0.5,
+    0.5
+   ],
+   "direction": "west"
+  }
+ ]
+}

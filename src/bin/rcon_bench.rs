@@ -1,4 +1,4 @@
-//! Замер пропускной способности RCON Factorio (TAR-166).
+//! Замер пропускной способности RCON Factorio.
 //!
 //! Нужен сервер Factorio с модом factorio-distributed и RCON на 127.0.0.1
 //! (см. bench/README.md). Запуск:

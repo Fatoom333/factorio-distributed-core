@@ -1,0 +1,1061 @@
+{
+ "name": "compressed-restart-long",
+ "ticks": 400,
+ "entities": [
+  {
+   "name": "wooden-chest",
+   "position": [
+    2.5,
+    -1.5
+   ],
+   "items": {
+    "iron-plate": 40
+   }
+  },
+  {
+   "name": "inserter",
+   "position": [
+    2.5,
+    -0.5
+   ],
+   "direction": "north"
+  },
+  {
+   "name": "wooden-chest",
+   "position": [
+    3.5,
+    -1.5
+   ],
+   "items": {
+    "iron-plate": 40
+   }
+  },
+  {
+   "name": "inserter",
+   "position": [
+    3.5,
+    -0.5
+   ],
+   "direction": "north"
+  },
+  {
+   "name": "wooden-chest",
+   "position": [
+    4.5,
+    -1.5
+   ],
+   "items": {
+    "iron-plate": 40
+   }
+  },
+  {
+   "name": "inserter",
+   "position": [
+    4.5,
+    -0.5
+   ],
+   "direction": "north"
+  },
+  {
+   "name": "wooden-chest",
+   "position": [
+    5.5,
+    -1.5
+   ],
+   "items": {
+    "iron-plate": 40
+   }
+  },
+  {
+   "name": "inserter",
+   "position": [
+    5.5,
+    -0.5
+   ],
+   "direction": "north"
+  },
+  {
+   "name": "wooden-chest",
+   "position": [
+    6.5,
+    -1.5
+   ],
+   "items": {
+    "iron-plate": 40
+   }
+  },
+  {
+   "name": "inserter",
+   "position": [
+    6.5,
+    -0.5
+   ],
+   "direction": "north"
+  },
+  {
+   "name": "wooden-chest",
+   "position": [
+    7.5,
+    -1.5
+   ],
+   "items": {
+    "iron-plate": 40
+   }
+  },
+  {
+   "name": "inserter",
+   "position": [
+    7.5,
+    -0.5
+   ],
+   "direction": "north"
+  },
+  {
+   "name": "wooden-chest",
+   "position": [
+    8.5,
+    -1.5
+   ],
+   "items": {
+    "iron-plate": 40
+   }
+  },
+  {
+   "name": "inserter",
+   "position": [
+    8.5,
+    -0.5
+   ],
+   "direction": "north"
+  },
+  {
+   "name": "wooden-chest",
+   "position": [
+    9.5,
+    -1.5
+   ],
+   "items": {
+    "iron-plate": 40
+   }
+  },
+  {
+   "name": "inserter",
+   "position": [
+    9.5,
+    -0.5
+   ],
+   "direction": "north"
+  },
+  {
+   "name": "wooden-chest",
+   "position": [
+    10.5,
+    -1.5
+   ],
+   "items": {
+    "iron-plate": 40
+   }
+  },
+  {
+   "name": "inserter",
+   "position": [
+    10.5,
+    -0.5
+   ],
+   "direction": "north"
+  },
+  {
+   "name": "wooden-chest",
+   "position": [
+    11.5,
+    -1.5
+   ],
+   "items": {
+    "iron-plate": 40
+   }
+  },
+  {
+   "name": "inserter",
+   "position": [
+    11.5,
+    -0.5
+   ],
+   "direction": "north"
+  },
+  {
+   "name": "wooden-chest",
+   "position": [
+    12.5,
+    -1.5
+   ],
+   "items": {
+    "iron-plate": 40
+   }
+  },
+  {
+   "name": "inserter",
+   "position": [
+    12.5,
+    -0.5
+   ],
+   "direction": "north"
+  },
+  {
+   "name": "wooden-chest",
+   "position": [
+    13.5,
+    -1.5
+   ],
+   "items": {
+    "iron-plate": 40
+   }
+  },
+  {
+   "name": "inserter",
+   "position": [
+    13.5,
+    -0.5
+   ],
+   "direction": "north"
+  },
+  {
+   "name": "wooden-chest",
+   "position": [
+    14.5,
+    -1.5
+   ],
+   "items": {
+    "iron-plate": 40
+   }
+  },
+  {
+   "name": "inserter",
+   "position": [
+    14.5,
+    -0.5
+   ],
+   "direction": "north"
+  },
+  {
+   "name": "wooden-chest",
+   "position": [
+    15.5,
+    -1.5
+   ],
+   "items": {
+    "iron-plate": 40
+   }
+  },
+  {
+   "name": "inserter",
+   "position": [
+    15.5,
+    -0.5
+   ],
+   "direction": "north"
+  },
+  {
+   "name": "wooden-chest",
+   "position": [
+    16.5,
+    -1.5
+   ],
+   "items": {
+    "iron-plate": 40
+   }
+  },
+  {
+   "name": "inserter",
+   "position": [
+    16.5,
+    -0.5
+   ],
+   "direction": "north"
+  },
+  {
+   "name": "wooden-chest",
+   "position": [
+    17.5,
+    -1.5
+   ],
+   "items": {
+    "iron-plate": 40
+   }
+  },
+  {
+   "name": "inserter",
+   "position": [
+    17.5,
+    -0.5
+   ],
+   "direction": "north"
+  },
+  {
+   "name": "wooden-chest",
+   "position": [
+    18.5,
+    -1.5
+   ],
+   "items": {
+    "iron-plate": 40
+   }
+  },
+  {
+   "name": "inserter",
+   "position": [
+    18.5,
+    -0.5
+   ],
+   "direction": "north"
+  },
+  {
+   "name": "wooden-chest",
+   "position": [
+    19.5,
+    -1.5
+   ],
+   "items": {
+    "iron-plate": 40
+   }
+  },
+  {
+   "name": "inserter",
+   "position": [
+    19.5,
+    -0.5
+   ],
+   "direction": "north"
+  },
+  {
+   "name": "wooden-chest",
+   "position": [
+    20.5,
+    -1.5
+   ],
+   "items": {
+    "iron-plate": 40
+   }
+  },
+  {
+   "name": "inserter",
+   "position": [
+    20.5,
+    -0.5
+   ],
+   "direction": "north"
+  },
+  {
+   "name": "wooden-chest",
+   "position": [
+    21.5,
+    -1.5
+   ],
+   "items": {
+    "iron-plate": 40
+   }
+  },
+  {
+   "name": "inserter",
+   "position": [
+    21.5,
+    -0.5
+   ],
+   "direction": "north"
+  },
+  {
+   "name": "wooden-chest",
+   "position": [
+    22.5,
+    -1.5
+   ],
+   "items": {
+    "iron-plate": 40
+   }
+  },
+  {
+   "name": "inserter",
+   "position": [
+    22.5,
+    -0.5
+   ],
+   "direction": "north"
+  },
+  {
+   "name": "wooden-chest",
+   "position": [
+    23.5,
+    -1.5
+   ],
+   "items": {
+    "iron-plate": 40
+   }
+  },
+  {
+   "name": "inserter",
+   "position": [
+    23.5,
+    -0.5
+   ],
+   "direction": "north"
+  },
+  {
+   "name": "wooden-chest",
+   "position": [
+    24.5,
+    -1.5
+   ],
+   "items": {
+    "iron-plate": 40
+   }
+  },
+  {
+   "name": "inserter",
+   "position": [
+    24.5,
+    -0.5
+   ],
+   "direction": "north"
+  },
+  {
+   "name": "wooden-chest",
+   "position": [
+    25.5,
+    -1.5
+   ],
+   "items": {
+    "iron-plate": 40
+   }
+  },
+  {
+   "name": "inserter",
+   "position": [
+    25.5,
+    -0.5
+   ],
+   "direction": "north"
+  },
+  {
+   "name": "wooden-chest",
+   "position": [
+    26.5,
+    -1.5
+   ],
+   "items": {
+    "iron-plate": 40
+   }
+  },
+  {
+   "name": "inserter",
+   "position": [
+    26.5,
+    -0.5
+   ],
+   "direction": "north"
+  },
+  {
+   "name": "wooden-chest",
+   "position": [
+    27.5,
+    -1.5
+   ],
+   "items": {
+    "iron-plate": 40
+   }
+  },
+  {
+   "name": "inserter",
+   "position": [
+    27.5,
+    -0.5
+   ],
+   "direction": "north"
+  },
+  {
+   "name": "wooden-chest",
+   "position": [
+    28.5,
+    -1.5
+   ],
+   "items": {
+    "iron-plate": 40
+   }
+  },
+  {
+   "name": "inserter",
+   "position": [
+    28.5,
+    -0.5
+   ],
+   "direction": "north"
+  },
+  {
+   "name": "wooden-chest",
+   "position": [
+    29.5,
+    -1.5
+   ],
+   "items": {
+    "iron-plate": 40
+   }
+  },
+  {
+   "name": "inserter",
+   "position": [
+    29.5,
+    -0.5
+   ],
+   "direction": "north"
+  },
+  {
+   "name": "wooden-chest",
+   "position": [
+    30.5,
+    -1.5
+   ],
+   "items": {
+    "iron-plate": 40
+   }
+  },
+  {
+   "name": "inserter",
+   "position": [
+    30.5,
+    -0.5
+   ],
+   "direction": "north"
+  },
+  {
+   "name": "wooden-chest",
+   "position": [
+    31.5,
+    -1.5
+   ],
+   "items": {
+    "iron-plate": 40
+   }
+  },
+  {
+   "name": "inserter",
+   "position": [
+    31.5,
+    -0.5
+   ],
+   "direction": "north"
+  },
+  {
+   "name": "wooden-chest",
+   "position": [
+    32.5,
+    -1.5
+   ],
+   "items": {
+    "iron-plate": 40
+   }
+  },
+  {
+   "name": "inserter",
+   "position": [
+    32.5,
+    -0.5
+   ],
+   "direction": "north"
+  },
+  {
+   "name": "wooden-chest",
+   "position": [
+    33.5,
+    -1.5
+   ],
+   "items": {
+    "iron-plate": 40
+   }
+  },
+  {
+   "name": "inserter",
+   "position": [
+    33.5,
+    -0.5
+   ],
+   "direction": "north"
+  },
+  {
+   "name": "wooden-chest",
+   "position": [
+    34.5,
+    -1.5
+   ],
+   "items": {
+    "iron-plate": 40
+   }
+  },
+  {
+   "name": "inserter",
+   "position": [
+    34.5,
+    -0.5
+   ],
+   "direction": "north"
+  },
+  {
+   "name": "wooden-chest",
+   "position": [
+    35.5,
+    -1.5
+   ],
+   "items": {
+    "iron-plate": 40
+   }
+  },
+  {
+   "name": "inserter",
+   "position": [
+    35.5,
+    -0.5
+   ],
+   "direction": "north"
+  },
+  {
+   "name": "wooden-chest",
+   "position": [
+    36.5,
+    -1.5
+   ],
+   "items": {
+    "iron-plate": 40
+   }
+  },
+  {
+   "name": "inserter",
+   "position": [
+    36.5,
+    -0.5
+   ],
+   "direction": "north"
+  },
+  {
+   "name": "wooden-chest",
+   "position": [
+    37.5,
+    -1.5
+   ],
+   "items": {
+    "iron-plate": 40
+   }
+  },
+  {
+   "name": "inserter",
+   "position": [
+    37.5,
+    -0.5
+   ],
+   "direction": "north"
+  },
+  {
+   "name": "wooden-chest",
+   "position": [
+    38.5,
+    -1.5
+   ],
+   "items": {
+    "iron-plate": 40
+   }
+  },
+  {
+   "name": "inserter",
+   "position": [
+    38.5,
+    -0.5
+   ],
+   "direction": "north"
+  },
+  {
+   "name": "wooden-chest",
+   "position": [
+    39.5,
+    -1.5
+   ],
+   "items": {
+    "iron-plate": 40
+   }
+  },
+  {
+   "name": "inserter",
+   "position": [
+    39.5,
+    -0.5
+   ],
+   "direction": "north"
+  },
+  {
+   "name": "wooden-chest",
+   "position": [
+    40.5,
+    -1.5
+   ],
+   "items": {
+    "iron-plate": 40
+   }
+  },
+  {
+   "name": "inserter",
+   "position": [
+    40.5,
+    -0.5
+   ],
+   "direction": "north"
+  },
+  {
+   "name": "wooden-chest",
+   "position": [
+    41.5,
+    -1.5
+   ],
+   "items": {
+    "iron-plate": 40
+   }
+  },
+  {
+   "name": "inserter",
+   "position": [
+    41.5,
+    -0.5
+   ],
+   "direction": "north"
+  },
+  {
+   "name": "transport-belt",
+   "position": [
+    2.5,
+    0.5
+   ],
+   "direction": "east"
+  },
+  {
+   "name": "transport-belt",
+   "position": [
+    3.5,
+    0.5
+   ],
+   "direction": "east"
+  },
+  {
+   "name": "transport-belt",
+   "position": [
+    4.5,
+    0.5
+   ],
+   "direction": "east"
+  },
+  {
+   "name": "transport-belt",
+   "position": [
+    5.5,
+    0.5
+   ],
+   "direction": "east"
+  },
+  {
+   "name": "transport-belt",
+   "position": [
+    6.5,
+    0.5
+   ],
+   "direction": "east"
+  },
+  {
+   "name": "transport-belt",
+   "position": [
+    7.5,
+    0.5
+   ],
+   "direction": "east"
+  },
+  {
+   "name": "transport-belt",
+   "position": [
+    8.5,
+    0.5
+   ],
+   "direction": "east"
+  },
+  {
+   "name": "transport-belt",
+   "position": [
+    9.5,
+    0.5
+   ],
+   "direction": "east"
+  },
+  {
+   "name": "transport-belt",
+   "position": [
+    10.5,
+    0.5
+   ],
+   "direction": "east"
+  },
+  {
+   "name": "transport-belt",
+   "position": [
+    11.5,
+    0.5
+   ],
+   "direction": "east"
+  },
+  {
+   "name": "transport-belt",
+   "position": [
+    12.5,
+    0.5
+   ],
+   "direction": "east"
+  },
+  {
+   "name": "transport-belt",
+   "position": [
+    13.5,
+    0.5
+   ],
+   "direction": "east"
+  },
+  {
+   "name": "transport-belt",
+   "position": [
+    14.5,
+    0.5
+   ],
+   "direction": "east"
+  },
+  {
+   "name": "transport-belt",
+   "position": [
+    15.5,
+    0.5
+   ],
+   "direction": "east"
+  },
+  {
+   "name": "transport-belt",
+   "position": [
+    16.5,
+    0.5
+   ],
+   "direction": "east"
+  },
+  {
+   "name": "transport-belt",
+   "position": [
+    17.5,
+    0.5
+   ],
+   "direction": "east"
+  },
+  {
+   "name": "transport-belt",
+   "position": [
+    18.5,
+    0.5
+   ],
+   "direction": "east"
+  },
+  {
+   "name": "transport-belt",
+   "position": [
+    19.5,
+    0.5
+   ],
+   "direction": "east"
+  },
+  {
+   "name": "transport-belt",
+   "position": [
+    20.5,
+    0.5
+   ],
+   "direction": "east"
+  },
+  {
+   "name": "transport-belt",
+   "position": [
+    21.5,
+    0.5
+   ],
+   "direction": "east"
+  },
+  {
+   "name": "transport-belt",
+   "position": [
+    22.5,
+    0.5
+   ],
+   "direction": "east"
+  },
+  {
+   "name": "transport-belt",
+   "position": [
+    23.5,
+    0.5
+   ],
+   "direction": "east"
+  },
+  {
+   "name": "transport-belt",
+   "position": [
+    24.5,
+    0.5
+   ],
+   "direction": "east"
+  },
+  {
+   "name": "transport-belt",
+   "position": [
+    25.5,
+    0.5
+   ],
+   "direction": "east"
+  },
+  {
+   "name": "transport-belt",
+   "position": [
+    26.5,
+    0.5
+   ],
+   "direction": "east"
+  },
+  {
+   "name": "transport-belt",
+   "position": [
+    27.5,
+    0.5
+   ],
+   "direction": "east"
+  },
+  {
+   "name": "transport-belt",
+   "position": [
+    28.5,
+    0.5
+   ],
+   "direction": "east"
+  },
+  {
+   "name": "transport-belt",
+   "position": [
+    29.5,
+    0.5
+   ],
+   "direction": "east"
+  },
+  {
+   "name": "transport-belt",
+   "position": [
+    30.5,
+    0.5
+   ],
+   "direction": "east"
+  },
+  {
+   "name": "transport-belt",
+   "position": [
+    31.5,
+    0.5
+   ],
+   "direction": "east"
+  },
+  {
+   "name": "transport-belt",
+   "position": [
+    32.5,
+    0.5
+   ],
+   "direction": "east"
+  },
+  {
+   "name": "transport-belt",
+   "position": [
+    33.5,
+    0.5
+   ],
+   "direction": "east"
+  },
+  {
+   "name": "transport-belt",
+   "position": [
+    34.5,
+    0.5
+   ],
+   "direction": "east"
+  },
+  {
+   "name": "transport-belt",
+   "position": [
+    35.5,
+    0.5
+   ],
+   "direction": "east"
+  },
+  {
+   "name": "transport-belt",
+   "position": [
+    36.5,
+    0.5
+   ],
+   "direction": "east"
+  },
+  {
+   "name": "transport-belt",
+   "position": [
+    37.5,
+    0.5
+   ],
+   "direction": "east"
+  },
+  {
+   "name": "transport-belt",
+   "position": [
+    38.5,
+    0.5
+   ],
+   "direction": "east"
+  },
+  {
+   "name": "transport-belt",
+   "position": [
+    39.5,
+    0.5
+   ],
+   "direction": "east"
+  },
+  {
+   "name": "transport-belt",
+   "position": [
+    40.5,
+    0.5
+   ],
+   "direction": "east"
+  },
+  {
+   "name": "transport-belt",
+   "position": [
+    41.5,
+    0.5
+   ],
+   "direction": "east"
+  },
+  {
+   "name": "inserter",
+   "position": [
+    42.5,
+    0.5
+   ],
+   "direction": "west"
+  },
+  {
+   "name": "wooden-chest",
+   "position": [
+    43.5,
+    0.5
+   ]
+  }
+ ]
+}
