@@ -1,0 +1,121 @@
+{
+ "name": "two-lanes",
+ "ticks": 1200,
+ "entities": [
+  {
+   "name": "wooden-chest",
+   "position": [
+    3.5,
+    -1.5
+   ],
+   "items": {
+    "iron-plate": 100
+   }
+  },
+  {
+   "name": "inserter",
+   "position": [
+    3.5,
+    -0.5
+   ],
+   "direction": "north"
+  },
+  {
+   "name": "wooden-chest",
+   "position": [
+    3.5,
+    2.5
+   ],
+   "items": {
+    "copper-plate": 100
+   }
+  },
+  {
+   "name": "inserter",
+   "position": [
+    3.5,
+    1.5
+   ],
+   "direction": "south"
+  },
+  {
+   "name": "transport-belt",
+   "position": [
+    2.5,
+    0.5
+   ],
+   "direction": "east"
+  },
+  {
+   "name": "transport-belt",
+   "position": [
+    3.5,
+    0.5
+   ],
+   "direction": "east"
+  },
+  {
+   "name": "transport-belt",
+   "position": [
+    4.5,
+    0.5
+   ],
+   "direction": "east"
+  },
+  {
+   "name": "transport-belt",
+   "position": [
+    5.5,
+    0.5
+   ],
+   "direction": "east"
+  },
+  {
+   "name": "transport-belt",
+   "position": [
+    6.5,
+    0.5
+   ],
+   "direction": "east"
+  },
+  {
+   "name": "transport-belt",
+   "position": [
+    7.5,
+    0.5
+   ],
+   "direction": "east"
+  },
+  {
+   "name": "transport-belt",
+   "position": [
+    8.5,
+    0.5
+   ],
+   "direction": "east"
+  },
+  {
+   "name": "transport-belt",
+   "position": [
+    9.5,
+    0.5
+   ],
+   "direction": "east"
+  },
+  {
+   "name": "inserter",
+   "position": [
+    10.5,
+    0.5
+   ],
+   "direction": "west"
+  },
+  {
+   "name": "wooden-chest",
+   "position": [
+    11.5,
+    0.5
+   ]
+  }
+ ]
+}
