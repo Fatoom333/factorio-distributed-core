@@ -3,13 +3,15 @@
 //! Нужен сервер Factorio с модом factorio-distributed и RCON на 127.0.0.1
 //! (см. bench/README.md). Запуск:
 //!
-//!   FD_RCON_PASSWORD_FILE=<путь> cargo run --release --bin rcon_bench
+//!   cargo run --release --bin rcon_bench -- [all|transport|events]
 //!
 //! Все команды — `/fd <JSON>` (команда мода, достижения не отключает).
 //! Печатает markdown-таблицы: задержка и скорость по размеру команды,
 //! сколько команд Factorio успевает за тик, размер ответа, применение
 //! пачек обновлений к сундукам и UPS под нагрузкой.
 
+use std::io::{Read, Seek, SeekFrom};
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use rcon::Connection;
@@ -54,12 +56,21 @@ fn pct(v: &mut [Duration], p: f64) -> f64 {
     ms(v[i])
 }
 
+fn pct_f(v: &mut [f64], p: f64) -> f64 {
+    v.sort_by(|a, b| a.total_cmp(b));
+    v[((v.len() as f64 - 1.0) * p).round() as usize]
+}
+
+const TICK_MS: f64 = 1000.0 / 60.0;
+
+/// Набор замеров — первый аргумент: `all` (по умолчанию), `transport` или `events`.
+/// Окружение — FD_ENV_DIR (по умолчанию `../bench-env`): пароль RCON и script-output.
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> R<()> {
+    let suite = std::env::args().nth(1).unwrap_or_else(|| "all".into());
     let addr = std::env::var("FD_RCON_ADDR").unwrap_or_else(|_| "127.0.0.1:27015".into());
-    let pw_file = std::env::var("FD_RCON_PASSWORD_FILE")
-        .map_err(|_| "задайте FD_RCON_PASSWORD_FILE — путь к файлу с паролем RCON")?;
-    let password = std::fs::read_to_string(&pw_file)?.trim().to_string();
+    let env_dir = PathBuf::from(std::env::var("FD_ENV_DIR").unwrap_or_else(|_| "../bench-env".into()));
+    let password = std::fs::read_to_string(env_dir.join("rcon-password.txt"))?.trim().to_string();
     let target = Target { addr, password };
 
     let mut c = connect(&target).await?;
@@ -69,10 +80,15 @@ async fn main() -> R<()> {
     }
 
     idle_ups(&mut c).await?;
-    raw_payload(&mut c, &target).await?;
-    cmds_per_tick(&mut c).await?;
-    response_size(&mut c, &target).await?;
-    apply(&mut c).await?;
+    if suite == "all" || suite == "transport" {
+        raw_payload(&mut c, &target).await?;
+        cmds_per_tick(&mut c).await?;
+        response_size(&mut c, &target).await?;
+        apply(&mut c).await?;
+    }
+    if suite == "all" || suite == "events" {
+        events(&mut c, &env_dir).await?;
+    }
     Ok(())
 }
 
@@ -227,5 +243,137 @@ async fn apply(c: &mut Conn) -> R<()> {
         }
     }
     println!();
+    Ok(())
+}
+
+/// Частота синтетических «действий игрока»: каждые `every` тиков по `per_tick` событий.
+struct Rate {
+    name: &'static str,
+    every: u32,
+    per_tick: u32,
+}
+
+const RATES: [Rate; 3] = [
+    Rate { name: "1 за 10 тиков", every: 10, per_tick: 1 },
+    Rate { name: "10 за тик", every: 1, per_tick: 10 },
+    Rate { name: "1000 за тик", every: 1, per_tick: 1000 },
+];
+
+const EVENTS_RUN: Duration = Duration::from_secs(10);
+
+/// Клиент → ядро: опрос `/fd poll` каждый тик против чтения файла, который пишет мод.
+/// Задержка — от тика, в котором событие создано, до получения ядром.
+async fn events(c: &mut Conn, env_dir: &Path) -> R<()> {
+    println!("## Клиент → ядро: события, 10 с на прогон\n");
+    println!("| частота | способ | получено | потеряно | p50 мс | p95 мс | макс мс | КБ/с | UPS |");
+    println!("|---|---|---:|---:|---:|---:|---:|---:|---:|");
+    for rate in &RATES {
+        for mode in ["poll", "file"] {
+            run_events(c, env_dir, rate, mode).await?;
+        }
+    }
+    println!(
+        "\nТочность задержки ±1 тик (~17 мс): время тика события восстанавливается по \
+         опорной точке «тик ↔ часы» (для poll — из того же ответа, для file — запрос тика раз в 0.5 с).\n"
+    );
+    Ok(())
+}
+
+/// Тик и момент на часах ядра, когда игра его выполняла (середина запроса).
+async fn anchor(c: &mut Conn) -> R<(u64, Instant)> {
+    let s = Instant::now();
+    let t = tick(c).await?;
+    Ok((t, s + s.elapsed() / 2))
+}
+
+/// Разбирает событие {"t": тик, "i": номер}.
+fn ev_fields(v: &serde_json::Value) -> Option<(f64, u64)> {
+    Some((v.get("t")?.as_f64()?, v.get("i")?.as_f64()? as u64))
+}
+
+async fn run_events(c: &mut Conn, env_dir: &Path, rate: &Rate, mode: &str) -> R<()> {
+    let file = env_dir.join("script-output").join("fd-events.jsonl");
+    let _ = std::fs::remove_file(&file);
+    fd(c, &format!(
+        r#"{{"op":"ev_start","every":{},"per_tick":{},"mode":"{mode}"}}"#,
+        rate.every, rate.per_tick
+    ))
+    .await?;
+
+    let mut lat: Vec<f64> = Vec::new();
+    let mut received = 0u64;
+    let mut bytes = 0usize;
+    let t0 = tick(c).await?;
+    let start = Instant::now();
+
+    if mode == "poll" {
+        while start.elapsed() < EVENTS_RUN {
+            let s = Instant::now();
+            let r = fd(c, r#"{"op":"poll"}"#).await?;
+            let rtt_half = ms(s.elapsed()) / 2.0;
+            bytes += r.len();
+            let v: serde_json::Value = serde_json::from_str(r.trim())?;
+            let now = v["now"].as_f64().ok_or("poll: нет now")?;
+            // Пустая очередь приходит как {} — это не массив, событий нет.
+            for e in v["ev"].as_array().map(|a| a.as_slice()).unwrap_or(&[]) {
+                if let Some((t, _)) = ev_fields(e) {
+                    lat.push(rtt_half + (now - t) * TICK_MS);
+                    received += 1;
+                }
+            }
+        }
+    } else {
+        let mut pos = 0u64;
+        let mut tail = String::new();
+        let (mut at, mut aw) = anchor(c).await?;
+        let mut last_anchor = Instant::now();
+        while start.elapsed() < EVENTS_RUN {
+            if last_anchor.elapsed() > Duration::from_millis(500) {
+                (at, aw) = anchor(c).await?;
+                last_anchor = Instant::now();
+            }
+            if let Ok(mut f) = std::fs::File::open(&file) {
+                f.seek(SeekFrom::Start(pos))?;
+                let mut chunk = String::new();
+                pos += f.read_to_string(&mut chunk)? as u64;
+                let arrival = Instant::now();
+                bytes += chunk.len();
+                tail.push_str(&chunk);
+                // Обрабатываем только целые строки, хвост ждёт следующего чтения.
+                if let Some(cut) = tail.rfind('\n') {
+                    for line in tail[..cut].lines() {
+                        let v: serde_json::Value = serde_json::from_str(line)?;
+                        if let Some((t, _)) = ev_fields(&v) {
+                            let born = ms(arrival.duration_since(aw)) - (t - at as f64) * TICK_MS;
+                            lat.push(born);
+                            received += 1;
+                        }
+                    }
+                    tail.drain(..=cut);
+                }
+            }
+            // std-сон: на Windows он точный (~1 мс), в отличие от таймера tokio.
+            std::thread::sleep(Duration::from_millis(1));
+        }
+    }
+
+    let wall = start.elapsed().as_secs_f64();
+    let ups = (tick(c).await? - t0) as f64 / wall;
+    let generated: u64 = fd(c, r#"{"op":"ev_stop"}"#).await?.trim().parse()?;
+    // Созданные в последние миллисекунды прогона ещё в пути — не считаем их потерей.
+    let in_flight = (rate.per_tick as u64) * 3;
+    let lost = generated.saturating_sub(received + in_flight);
+    if lat.is_empty() {
+        println!("| {} | {mode} | 0 | {generated} | | | | | {ups:.1} |", rate.name);
+        return Ok(());
+    }
+    println!(
+        "| {} | {mode} | {received} | {lost} | {:.1} | {:.1} | {:.1} | {:.0} | {ups:.1} |",
+        rate.name,
+        pct_f(&mut lat, 0.5),
+        pct_f(&mut lat, 0.95),
+        pct_f(&mut lat, 1.0),
+        bytes as f64 / 1e3 / wall
+    );
     Ok(())
 }

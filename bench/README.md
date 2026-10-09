@@ -11,7 +11,7 @@
 .\bench\run-server.ps1
 # 3. В другом окне — замер
 $env:FD_RCON_PASSWORD_FILE = "..\bench-env\rcon-password.txt"
-cargo run --release --bin rcon_bench
+cargo run --release --bin rcon_bench -- all   # или transport / events
 ```
 
 Окружение создаётся в `../bench-env` (рядом с репозиториями, не в git): свой `config.ini`,
