@@ -3,7 +3,7 @@
 //! Нужен сервер Factorio с модом factorio-distributed и RCON на 127.0.0.1
 //! (см. bench/README.md). Запуск:
 //!
-//!   cargo run --release --bin rcon_bench -- [all|transport|events|freeze]
+//!   cargo run --release --bin rcon_bench -- [all|transport|events|freeze|insert]
 //!
 //! Все команды — `/fd <JSON>` (команда мода, достижения не отключает).
 //! Печатает markdown-таблицы: задержка и скорость по размеру команды,
@@ -63,7 +63,7 @@ fn pct_f(v: &mut [f64], p: f64) -> f64 {
 
 const TICK_MS: f64 = 1000.0 / 60.0;
 
-/// Набор замеров — первый аргумент: `all` (по умолчанию), `transport`, `events` или `freeze`.
+/// Набор замеров — первый аргумент: `all` (по умолчанию), `transport`, `events`, `freeze` или `insert`.
 /// Окружение — FD_ENV_DIR (по умолчанию `../bench-env`): пароль RCON и script-output.
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> R<()> {
@@ -91,6 +91,9 @@ async fn main() -> R<()> {
     }
     if suite == "all" || suite == "freeze" {
         freeze(&mut c).await?;
+    }
+    if suite == "all" || suite == "insert" {
+        insert(&mut c).await?;
     }
     Ok(())
 }
@@ -475,4 +478,28 @@ async fn max_ups(c: &mut Conn) -> R<f64> {
     tokio::time::sleep(Duration::from_secs(3)).await;
     let (t1, w1) = (tick(c).await?, Instant::now());
     Ok((t1 - t0) as f64 / (w1 - w0).as_secs_f64())
+}
+
+/// Цена `LuaTransportLine.insert_at`: заполнение конвейеров при входе полосы в окно.
+/// Вставка = (заполнить + очистить) − (только очистить), делённое на число вставок.
+async fn insert(c: &mut Conn) -> R<()> {
+    const BELTS: usize = 10_000;
+    const REP: usize = 10;
+    let lines: usize = fd(c, &format!(r#"{{"op":"ins_setup","n":{BELTS}}}"#)).await?.trim().parse()?;
+    let fill = format!(r#"{{"op":"ins_fill","fill":true,"repeat":{REP}}}"#);
+    let inserted: usize = fd(c, &fill).await?.trim().parse()?;
+    let t_fill = latency_p50(c, &fill, 5).await?;
+    let t_clear = latency_p50(c, &format!(r#"{{"op":"ins_fill","fill":false,"repeat":{REP}}}"#), 5).await?;
+    let per_us = (t_fill - t_clear) * 1000.0 / (REP * inserted) as f64;
+    println!("## Заполнение конвейеров (`insert_at`)
+");
+    println!("- {BELTS} конвейеров, {lines} лент, вставок за проход: {inserted} (из {})", lines * 4);
+    println!("- {REP} проходов: заполнить+очистить {t_fill:.1} мс, только очистить {t_clear:.1} мс");
+    println!("- **одна вставка: {per_us:.2} мкс**");
+    println!(
+        "- полоса окна 32×64 (~1000 конвейеров × 8 предметов): ≈ {:.1} мс
+",
+        per_us * 8000.0 / 1000.0
+    );
+    Ok(())
 }
