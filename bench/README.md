@@ -10,7 +10,7 @@
 # 2. Сервер без окна, RCON на 127.0.0.1:27015
 .\bench\run-server.ps1
 # 3. В другом окне — замер
-$env:FD_RCON_PASSWORD_FILE = "..\bench-env\rcon-password.txt"
+# пароль и script-output берутся из ..\bench-env (другое место — $env:FD_ENV_DIR)
 cargo run --release --bin rcon_bench -- all   # или transport / events
 ```
 
