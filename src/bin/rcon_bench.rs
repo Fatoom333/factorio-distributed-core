@@ -3,7 +3,7 @@
 //! Нужен сервер Factorio с модом factorio-distributed и RCON на 127.0.0.1
 //! (см. bench/README.md). Запуск:
 //!
-//!   cargo run --release --bin rcon_bench -- [all|transport|events|freeze|insert]
+//!   cargo run --release --bin rcon_bench -- [all|transport|events|freeze|insert|mega]
 //!
 //! Все команды — `/fd <JSON>` (команда мода, достижения не отключает).
 //! Печатает markdown-таблицы: задержка и скорость по размеру команды,
@@ -63,7 +63,7 @@ fn pct_f(v: &mut [f64], p: f64) -> f64 {
 
 const TICK_MS: f64 = 1000.0 / 60.0;
 
-/// Набор замеров — первый аргумент: `all` (по умолчанию), `transport`, `events`, `freeze` или `insert`.
+/// Набор замеров — первый аргумент: `all` (по умолчанию), `transport`, `events`, `freeze`, `insert` или `mega` (только на сейве мегабазы).
 /// Окружение — FD_ENV_DIR (по умолчанию `../bench-env`): пароль RCON и script-output.
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> R<()> {
@@ -94,6 +94,10 @@ async fn main() -> R<()> {
     }
     if suite == "all" || suite == "insert" {
         insert(&mut c).await?;
+    }
+    // Только на сейве мегабазы, не входит в all.
+    if suite == "mega" {
+        mega(&mut c).await?;
     }
     Ok(())
 }
@@ -501,5 +505,90 @@ async fn insert(c: &mut Conn) -> R<()> {
 ",
         per_us * 8000.0 / 1000.0
     );
+    Ok(())
+}
+
+/// Окно размером с экран при обычном масштабе: 64×36 клеток.
+const WIN_W: u32 = 64;
+const WIN_H: u32 = 36;
+const FLOW_TICKS: u32 = 300;
+
+/// Мегабаза: что пересекает край окна и что происходит внутри, плюс цена клиента,
+/// когда вне окна всё заморожено.
+async fn mega(c: &mut Conn) -> R<()> {
+    println!("## Мегабаза
+");
+    let info: serde_json::Value = serde_json::from_str(fd(c, r#"{"op":"mb_info"}"#).await?.trim())?;
+    println!("- сущностей игрока: {}, границы: {}", info["total"], info["bbox"]);
+    let top: Vec<String> = info["top"]
+        .as_array()
+        .map(|a| a.iter().map(|t| format!("{} {}", t[0].as_str().unwrap_or("?"), t[1])).collect())
+        .unwrap_or_default();
+    println!("- чаще всего: {}
+", top.join(", "));
+
+    // 40 случайных окон там, где застроено.
+    let wins: serde_json::Value = serde_json::from_str(
+        fd(c, &format!(r#"{{"op":"mb_windows","n":40,"w":{WIN_W},"h":{WIN_H},"seed":7}}"#)).await?.trim(),
+    )?;
+    let mut wins: Vec<serde_json::Value> = wins.as_array().ok_or("mb_windows: не массив")?.clone();
+    let field = |w: &serde_json::Value, k: &str| w[k].as_f64().unwrap_or(0.0);
+    println!("### 40 окон {WIN_W}×{WIN_H}: медиана / максимум
+");
+    println!("| что | медиана | максимум |");
+    println!("|---|---:|---:|");
+    for k in ["entities", "belts", "inserters", "crafters", "edge_in", "edge_out"] {
+        let mut v: Vec<f64> = wins.iter().map(|w| field(w, k)).collect();
+        println!("| {k} | {:.0} | {:.0} |", pct_f(&mut v, 0.5), pct_f(&mut v, 1.0));
+    }
+
+    // Поток: 5 самых плотных окон + медианное.
+    wins.sort_by(|a, b| field(b, "entities").total_cmp(&field(a, "entities")));
+    let mut chosen: Vec<serde_json::Value> = wins.iter().take(5).cloned().collect();
+    chosen.push(wins[wins.len() / 2].clone());
+    let rects: Vec<String> = chosen
+        .iter()
+        .map(|w| format!(r#"{{"x0":{},"y0":{},"x1":{},"y1":{}}}"#, w["x0"], w["y0"], w["x1"], w["y1"]))
+        .collect();
+    fd(c, &format!(r#"{{"op":"mb_flow_start","ticks":{FLOW_TICKS},"windows":[{}]}}"#, rects.join(","))).await?;
+    let flow = loop {
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        let r = fd(c, r#"{"op":"mb_flow_result"}"#).await?;
+        if !r.starts_with("running") {
+            break r;
+        }
+    };
+    let flow: serde_json::Value = serde_json::from_str(flow.trim())?;
+    println!("
+### Поток через край окна, {FLOW_TICKS} тиков (всё — в среднем за тик)
+");
+    println!("| окно | сущностей | краевых конв. вход/выход | предметов въехало | выехало | роботов вошло | вагонов вошло | взмахов манип. | крафтов |");
+    println!("|---|---:|---|---:|---:|---:|---:|---:|---:|");
+    for (i, f) in flow.as_array().ok_or("mb_flow_result: не массив")?.iter().enumerate() {
+        let name = if i < 5 { format!("плотное {}", i + 1) } else { "медианное".into() };
+        println!(
+            "| {name} | {} | {}/{} | {:.2} | {:.2} | {:.2} | {:.3} | {:.2} | {:.2} |",
+            chosen[i]["entities"], f["edge_in"], f["edge_out"],
+            field(f, "items_in"), field(f, "items_out"), field(f, "robots_in"),
+            field(f, "stock_in"), field(f, "swings"), field(f, "crafts")
+        );
+    }
+
+    // Цена клиента: вся база → вне самого плотного окна заморожено → ещё и конвейеры пустые.
+    let w = &chosen[0];
+    let rect = format!(r#""x0":{},"y0":{},"x1":{},"y1":{}"#, w["x0"], w["y0"], w["x1"], w["y1"]);
+    println!("
+### Цена клиента (game.speed = 1000, тиков в секунду)
+");
+    println!("| состояние | UPS |");
+    println!("|---|---:|");
+    fd(c, r#"{"op":"speed","speed":1000}"#).await?;
+    println!("| вся база работает | {:.0} |", max_ups(c).await?);
+    let fr = fd(c, &format!(r#"{{"op":"mb_freeze_outside",{rect}}}"#)).await?;
+    println!("| вне окна заморожено ({}) | {:.0} |", fr.trim(), max_ups(c).await?);
+    let cl = fd(c, &format!(r#"{{"op":"mb_clear_belts_outside",{rect}}}"#)).await?;
+    println!("| + конвейеры вне окна пустые ({} шт.) | {:.0} |", cl.trim(), max_ups(c).await?);
+    fd(c, r#"{"op":"speed","speed":1}"#).await?;
+    println!();
     Ok(())
 }
