@@ -3,7 +3,7 @@
 //! Нужен сервер Factorio с модом factorio-distributed и RCON на 127.0.0.1
 //! (см. bench/README.md). Запуск:
 //!
-//!   cargo run --release --bin rcon_bench -- [all|transport|events]
+//!   cargo run --release --bin rcon_bench -- [all|transport|events|freeze]
 //!
 //! Все команды — `/fd <JSON>` (команда мода, достижения не отключает).
 //! Печатает markdown-таблицы: задержка и скорость по размеру команды,
@@ -63,7 +63,7 @@ fn pct_f(v: &mut [f64], p: f64) -> f64 {
 
 const TICK_MS: f64 = 1000.0 / 60.0;
 
-/// Набор замеров — первый аргумент: `all` (по умолчанию), `transport` или `events`.
+/// Набор замеров — первый аргумент: `all` (по умолчанию), `transport`, `events` или `freeze`.
 /// Окружение — FD_ENV_DIR (по умолчанию `../bench-env`): пароль RCON и script-output.
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> R<()> {
@@ -88,6 +88,9 @@ async fn main() -> R<()> {
     }
     if suite == "all" || suite == "events" {
         events(&mut c, &env_dir).await?;
+    }
+    if suite == "all" || suite == "freeze" {
+        freeze(&mut c).await?;
     }
     Ok(())
 }
@@ -376,4 +379,100 @@ async fn run_events(c: &mut Conn, env_dir: &Path, rate: &Rate, mode: &str) -> R<
         bytes as f64 / 1e3 / wall
     );
     Ok(())
+}
+
+const LOOPS: usize = 5000;
+
+/// Заморозка `disabled_by_script`: какие сущности её принимают, останавливаются ли
+/// конвейеры, сколько UPS экономит и сколько стоит переключение.
+async fn freeze(c: &mut Conn) -> R<()> {
+    println!("## Заморозка (`disabled_by_script`)
+");
+
+    let v: serde_json::Value = serde_json::from_str(fd(c, r#"{"op":"fz_probe"}"#).await?.trim())?;
+    println!("### Какие сущности её принимают
+");
+    println!("| сущность | is_updatable | disabled после записи | active |");
+    println!("|---|---|---|---|");
+    for (name, r) in v.as_object().ok_or("fz_probe: не объект")? {
+        match r.as_array() {
+            Some(a) => println!("| {name} | {} | {} | {} |", a[0], a[1], a[2]),
+            None => println!("| {name} | {r} | | |"),
+        }
+    }
+
+    let setup = fd(c, &format!(r#"{{"op":"fz_loops_setup","n":{LOOPS}}}"#)).await?;
+    println!("
+### {LOOPS} колец 2×2 с плитами: {}
+", setup.trim());
+
+    println!("- до заморозки предметы едут: {}", moving(c).await?);
+    let n = fd(c, r#"{"op":"fz_set","disabled":true}"#).await?;
+    println!("- заморожено (читаются как disabled): {}", n.trim());
+    println!("- после заморозки предметы едут: {}", moving(c).await?);
+    fd(c, r#"{"op":"fz_set","disabled":false}"#).await?;
+    println!("- после разморозки едут: {}
+", moving(c).await?);
+
+    // Цена переключения: команда с repeat повторами минус пустая команда.
+    let base = latency_p50(c, r#"{"op":"ping"}"#, 10).await?;
+    let belts = LOOPS * 4;
+    let rep = 10;
+    let all = latency_p50(c, &format!(r#"{{"op":"fz_set","disabled":false,"repeat":{rep}}}"#), 5).await?;
+    let per_toggle_us = (all - base) * 1000.0 / (rep * belts) as f64;
+    // Полоса на краю окна: 1 чанк шириной на высоту ~экрана.
+    let strip = r#""x0":0,"y0":300,"x1":32,"y1":364"#;
+    let found = fd(c, &format!(r#"{{"op":"fz_area_set","disabled":false,{strip}}}"#)).await?;
+    let srep = 100;
+    let area = latency_p50(c, &format!(r#"{{"op":"fz_area_set","disabled":false,"repeat":{srep},{strip}}}"#), 5).await?;
+    println!("### Цена переключения
+");
+    println!("- одно переключение по готовому списку: {per_toggle_us:.2} мкс ({belts} конвейеров × {rep})");
+    println!(
+        "- полоса 32×64 клетки (поиск + переключение, {} конвейеров): {:.3} мс
+",
+        found.trim(),
+        (area - base) / srep as f64
+    );
+
+    // Сколько UPS съедают кольца: ускоряем игру и меряем, сколько тиков она успевает.
+    println!("### Максимальный UPS (game.speed = 1000)
+");
+    println!("| состояние | UPS |");
+    println!("|---|---:|");
+    fd(c, r#"{"op":"fz_speed","speed":1000}"#).await?;
+    println!("| {belts} конвейеров едут | {:.0} |", max_ups(c).await?);
+    fd(c, r#"{"op":"fz_set","disabled":true}"#).await?;
+    println!("| {belts} конвейеров заморожены | {:.0} |", max_ups(c).await?);
+    fd(c, r#"{"op":"fz_clear"}"#).await?;
+    println!("| конвейеров нет | {:.0} |", max_ups(c).await?);
+    fd(c, r#"{"op":"fz_speed","speed":1}"#).await?;
+    println!();
+    Ok(())
+}
+
+/// Едут ли предметы: два снимка позиций с разницей ~20 тиков.
+async fn moving(c: &mut Conn) -> R<bool> {
+    let a = fd(c, r#"{"op":"fz_snapshot"}"#).await?;
+    tokio::time::sleep(Duration::from_millis(350)).await;
+    let b = fd(c, r#"{"op":"fz_snapshot"}"#).await?;
+    Ok(a != b)
+}
+
+async fn latency_p50(c: &mut Conn, json: &str, reps: usize) -> R<f64> {
+    let mut lat = Vec::with_capacity(reps);
+    for _ in 0..reps {
+        let s = Instant::now();
+        fd(c, json).await?;
+        lat.push(s.elapsed());
+    }
+    Ok(pct(&mut lat, 0.5))
+}
+
+/// Тиков в секунду за 3 с (имеет смысл при большом game.speed).
+async fn max_ups(c: &mut Conn) -> R<f64> {
+    let (t0, w0) = (tick(c).await?, Instant::now());
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    let (t1, w1) = (tick(c).await?, Instant::now());
+    Ok((t1 - t0) as f64 / (w1 - w0).as_secs_f64())
 }
