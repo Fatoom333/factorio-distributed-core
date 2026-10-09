@@ -5,11 +5,15 @@
 //! Клиент — пинг-понг кадрами разного размера и поток «60 кадров в секунду»:
 //!   net_bench client 127.0.0.1:27100
 //!
+//! UDP — эхо пакетов и поток 60 пакетов/с с номером и временем отправки:
+//!   net_bench udp-server <адрес:порт>   (слушать конкретный адрес, не 0.0.0.0)
+//!   net_bench udp-client <адрес:порт>
+//!
 //! Только стандартная библиотека. Сервер по умолчанию слушает лишь 127.0.0.1;
-//! для замера через интернет его кладут за SSH-туннель.
+//! для замера через интернет TCP-сервер кладут за SSH-туннель.
 
 use std::io::{BufReader, Read, Write};
-use std::net::{TcpListener, TcpStream};
+use std::net::{TcpListener, TcpStream, UdpSocket};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -24,7 +28,9 @@ fn main() -> R<()> {
     match args.get(1).map(String::as_str) {
         Some("server") => server(addr),
         Some("client") => client(addr),
-        _ => Err("использование: net_bench server|client [адрес:порт]".into()),
+        Some("udp-server") => udp_server(addr),
+        Some("udp-client") => udp_client(addr),
+        _ => Err("использование: net_bench server|client|udp-server|udp-client [адрес:порт]".into()),
     }
 }
 
@@ -136,6 +142,93 @@ fn client(addr: &str) -> R<()> {
         let late = rtt.iter().filter(|&&x| x > 2.0 * 16.667).count();
         println!(
             "\n## Поток 60 кадров/с по {size} байт ({N} кадров)\n\n- RTT p50 / p95 / макс: {:.1} / {:.1} / {:.1} мс\n- кадров с RTT больше 2 тиков: {late}",
+            pct(&mut rtt, 0.5),
+            pct(&mut rtt, 0.95),
+            pct(&mut rtt, 1.0)
+        );
+    }
+    println!();
+    Ok(())
+}
+
+fn udp_server(addr: &str) -> R<()> {
+    let sock = UdpSocket::bind(addr)?;
+    println!("net_bench: UDP, слушаю {addr}");
+    let mut buf = [0u8; 65_536];
+    loop {
+        let (n, from) = sock.recv_from(&mut buf)?;
+        sock.send_to(&buf[..n], from)?;
+    }
+}
+
+/// Поток 60 пакетов/с: в каждом номер (8 байт) и время отправки в мкс от старта (8 байт).
+fn udp_client(addr: &str) -> R<()> {
+    const N: usize = 600;
+    println!("## UDP: поток 60 пакетов/с, {N} пакетов
+");
+    println!("| байт | получено | потеряно | p50 мс | p95 мс | макс мс | не по порядку | RTT > 2 тиков |");
+    println!("|---:|---:|---:|---:|---:|---:|---:|---:|");
+    for size in [64usize, 1_000, 4_000] {
+        let sock = UdpSocket::bind("0.0.0.0:0")?;
+        sock.connect(addr)?;
+        sock.set_read_timeout(Some(Duration::from_millis(200)))?;
+        let start = Instant::now();
+        let reader = sock.try_clone()?;
+        let recv = std::thread::spawn(move || {
+            let mut buf = [0u8; 65_536];
+            let mut got: Vec<(u64, f64)> = Vec::new();
+            let mut idle_since = None;
+            loop {
+                match reader.recv(&mut buf) {
+                    Ok(n) if n >= 16 => {
+                        idle_since = None;
+                        let seq = u64::from_le_bytes(buf[..8].try_into().unwrap());
+                        let sent_us = u64::from_le_bytes(buf[8..16].try_into().unwrap());
+                        let now_us = start.elapsed().as_micros() as u64;
+                        got.push((seq, (now_us - sent_us) as f64 / 1000.0));
+                    }
+                    Ok(_) => {}
+                    Err(_) => {
+                        // Ждём хвост 2 с после последнего пакета, потом выходим.
+                        let t = *idle_since.get_or_insert_with(Instant::now);
+                        if t.elapsed() > Duration::from_secs(2) && start.elapsed() > Duration::from_secs(11) {
+                            break;
+                        }
+                    }
+                }
+            }
+            got
+        });
+        let mut data = vec![b'x'; size.max(16)];
+        for i in 0..N {
+            let due = start + Duration::from_micros(16_667 * i as u64);
+            if let Some(wait) = due.checked_duration_since(Instant::now()) {
+                std::thread::sleep(wait);
+            }
+            data[..8].copy_from_slice(&(i as u64).to_le_bytes());
+            data[8..16].copy_from_slice(&(start.elapsed().as_micros() as u64).to_le_bytes());
+            sock.send(&data)?;
+        }
+        let got = recv.join().map_err(|_| "поток приёма упал")?;
+        let mut max_seq = None;
+        let reordered = got
+            .iter()
+            .filter(|(seq, _)| {
+                let late = max_seq.is_some_and(|m| *seq < m);
+                max_seq = Some(max_seq.map_or(*seq, |m: u64| m.max(*seq)));
+                late
+            })
+            .count();
+        let mut rtt: Vec<f64> = got.iter().map(|(_, r)| *r).collect();
+        let late = rtt.iter().filter(|&&x| x > 2.0 * 16.667).count();
+        if rtt.is_empty() {
+            println!("| {size} | 0 | {N} | | | | | |");
+            continue;
+        }
+        println!(
+            "| {size} | {} | {} | {:.1} | {:.1} | {:.1} | {reordered} | {late} |",
+            got.len(),
+            N.saturating_sub(got.len()),
             pct(&mut rtt, 0.5),
             pct(&mut rtt, 0.95),
             pct(&mut rtt, 1.0)
