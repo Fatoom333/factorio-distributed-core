@@ -160,7 +160,22 @@ pub struct World {
     /// обновления (`Inserter::act_next`, см. `wake`).
     pub ins_head: u32,
     pub chests: Vec<Chest>,
+    /// Предметы на земле (выгрузка манипулятора в тайл без сущности), в порядке появления.
+    pub ground: Vec<GroundItem>,
 }
+
+/// Предмет на земле: лежит там, куда его положил манипулятор, пока другой манипулятор не
+/// заберёт. Точка — 1/256 тайла.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize)]
+pub struct GroundItem {
+    pub pos: (Fx, Fx),
+    pub item: ItemId,
+}
+
+/// Половина стороны коробки столкновений предмета на земле (±0.14 тайла из прототипа,
+/// усечённая к нулю до 1/256 — 35): два предмета ближе, чем `2 · 35` по обеим осям, на одно место
+/// не ложатся (проверено по эталону, пробы `ng-x*`, `ng-y*`: 70 мешает, 71 нет).
+pub const GROUND_HALF: Fx = 35;
 
 impl World {
     /// Мир из сцены; числа сущностей — из `protos` (обычно [`proto::Prototypes::bundled`]).
@@ -220,7 +235,10 @@ impl World {
             }
             // На ленту манипулятор берёт всегда и ждёт у ленты (вики; эталон).
             Target::Belt(_) => true,
-            // Выгрузка на землю — не M0: такой манипулятор не берёт ничего.
+            // На землю манипулятор берёт всегда: занято ли место, выясняется при выгрузке
+            // (проба `nt-drop-none-i`: второй предмет взят, пока первый лежит).
+            Target::Ground => true,
+            // Сущность, в которую не кладут (другой манипулятор): не берёт ничего.
             Target::None => false,
         }
     }
@@ -338,16 +356,6 @@ impl World {
             (p.rotation_speed, p.extension_speed)
         };
         let (pickup, drop) = (ins.pickup, ins.drop);
-        // Нет источника или цели выгрузки (захват с земли, выгрузка на землю) — не M0: рука
-        // встаёт в точку захвата, манипулятор выбывает из списка активных навсегда.
-        if pickup == Target::None || drop == Target::None {
-            let ins = &mut self.inserters[i];
-            let t = ins.at_pickup;
-            if ins.hand.step(t, rot_speed, ext_speed) {
-                self.sleep(i);
-            }
-            return;
-        }
         // ---- выгрузка ----
         if !ins.pickup_mode || ins.held.is_some() {
             let ins = &mut self.inserters[i];
@@ -389,6 +397,19 @@ impl World {
                             self.register(i, WakeRef::Drop(li));
                             self.sleep(i);
                         }
+                    }
+                }
+                Target::Ground => {
+                    // Место занято лежащим предметом — рука ждёт в точке выгрузки и не спит,
+                    // пробует каждый тик (пробы `nt-drop-none-*`, `ng-*`).
+                    let dp = self.inserters[i].drop_point;
+                    let busy = self
+                        .ground
+                        .iter()
+                        .any(|g| (g.pos.0 - dp.0).abs() <= 2 * GROUND_HALF && (g.pos.1 - dp.1).abs() <= 2 * GROUND_HALF);
+                    if !busy {
+                        self.ground.push(GroundItem { pos: dp, item });
+                        self.released(i);
                     }
                 }
                 Target::None => {}
@@ -503,7 +524,25 @@ impl World {
                     }
                 }
             }
-            Target::None => {}
+            Target::None => {
+                // Нет сундука и ленты: рука стоит в точке захвата и не спит (игра каждый тик ищет
+                // сущность в тайле); предмет с земли берёт тот, чья середина лежит в тайле точки
+                // захвата, без проверки приёмника (кроме полного сундука выше) — пробы `ng-chain`,
+                // `ngp-*`.
+                let ins = &mut self.inserters[i];
+                ins.chase = None;
+                let t = ins.at_pickup;
+                if !ins.hand.step(t, rot_speed, ext_speed) {
+                    return;
+                }
+                let tile = |p: (Fx, Fx)| (p.0.div_euclid(TILE), p.1.div_euclid(TILE));
+                let here = tile(self.inserters[i].pickup_point);
+                if let Some(k) = self.ground.iter().position(|g| tile(g.pos) == here) {
+                    let g = self.ground.remove(k);
+                    self.grabbed(i, g.item);
+                }
+            }
+            Target::Ground => {}
         }
     }
 

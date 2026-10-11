@@ -1,0 +1,24 @@
+{
+ "name": "nt-src-none-l",
+ "ticks": 300,
+ "entities": [
+  {
+   "name": "long-handed-inserter",
+   "position": [
+    4.5,
+    0.5
+   ],
+   "direction": "west"
+  },
+  {
+   "name": "wooden-chest",
+   "position": [
+    6.5,
+    0.5
+   ],
+   "items": {
+    "iron-plate": 5
+   }
+  }
+ ]
+}

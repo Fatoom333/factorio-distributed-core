@@ -1,0 +1,47 @@
+{
+ "name": "ngq-d00",
+ "ticks": 200,
+ "entities": [
+  {
+   "name": "wooden-chest",
+   "position": [
+    -0.5,
+    0.5
+   ],
+   "items": {
+    "iron-plate": 2
+   }
+  },
+  {
+   "name": "inserter",
+   "position": [
+    0.5,
+    0.5
+   ],
+   "direction": "west",
+   "drop": [
+    1.19921875,
+    -0.5
+   ]
+  },
+  {
+   "name": "inserter",
+   "position": [
+    1.5,
+    1.5
+   ],
+   "direction": "north",
+   "pickup": [
+    0.19921875,
+    -1.0
+   ]
+  },
+  {
+   "name": "wooden-chest",
+   "position": [
+    1.5,
+    2.5
+   ]
+  }
+ ]
+}

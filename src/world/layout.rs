@@ -12,7 +12,7 @@ use super::inventory::{Chest, Inventory};
 use super::proto::{BeltProto, InserterProto, Prototypes, TILE_LANE_LEN};
 use super::softfloat::Sf;
 use super::wake::{WakeRef, NONE};
-use super::{BeltTile, Dir, World};
+use super::{BeltTile, Dir, World, GROUND_HALF};
 
 // ---------- сцена ----------
 
@@ -404,11 +404,35 @@ pub fn build(scene: &Scene, protos: &Prototypes) -> Result<World, LayoutError> {
             Some(Kind::Belt(b)) => Target::Belt(*b as u32),
             _ => Target::None,
         };
+        // Тайл выгрузки без сущности — земля; другая сущность (манипулятор) не принимает.
         ins.drop = match at.get(&drop_tile) {
             Some(Kind::Chest(c)) => Target::Chest(*c as u32),
             Some(Kind::Belt(b)) => Target::Belt(*b as u32),
-            _ => Target::None,
+            Some(Kind::Inserter) => Target::None,
+            None => Target::Ground,
         };
+    }
+    // Манипулятор без источника берёт предмет с земли в своём тайле захвата. Если в таком тайле
+    // могут лежать сразу два предмета (точки выгрузки дальше `2 · GROUND_HALF` по какой-то оси),
+    // какой он возьмёт первым — не проверено: модель такую сцену не считает.
+    let mut picked: Vec<(i32, i32)> = Vec::new();
+    for ins in inserters.iter().filter(|i| i.pickup == Target::None) {
+        picked.push(tile_of(ins.pickup_point.0, ins.pickup_point.1));
+    }
+    if !picked.is_empty() {
+        let mut dropped: HashMap<(i32, i32), Vec<(Fx, Fx)>> = HashMap::new();
+        for ins in inserters.iter().filter(|i| i.drop == Target::Ground) {
+            let t = tile_of(ins.drop_point.0, ins.drop_point.1);
+            if picked.contains(&t) {
+                dropped.entry(t).or_default().push(ins.drop_point);
+            }
+        }
+        let far = |a: (Fx, Fx), b: (Fx, Fx)| (a.0 - b.0).abs() > 2 * GROUND_HALF || (a.1 - b.1).abs() > 2 * GROUND_HALF;
+        for (t, pts) in &dropped {
+            if pts.iter().enumerate().any(|(k, &a)| pts[k + 1..].iter().any(|&b| far(a, b))) {
+                return err(format!("тайл {t:?}: на землю в тайле захвата без источника могут лечь два предмета — не M0.5"));
+            }
+        }
     }
 
     let mut world = World {
@@ -432,6 +456,7 @@ pub fn build(scene: &Scene, protos: &Prototypes) -> Result<World, LayoutError> {
         inserters,
         ins_head: NONE,
         chests,
+        ground: Vec::new(),
     };
     settle(&mut world, &next, &built, scene.warmup);
     Ok(world)
@@ -598,6 +623,24 @@ mod tests {
         let w = build(&sc, Prototypes::bundled()).unwrap();
         assert_eq!(w.lines.iter().filter(|l| l.alive).count(), 8);
         assert!(!w.remerges.is_empty());
+    }
+
+    /// Земля: тайл без сущности — цель `Ground`, тайл с манипулятором — `None`; два предмета,
+    /// которые могут лечь в тайл захвата безисточникового манипулятора, — отказ.
+    #[test]
+    fn ground_targets() {
+        let a = serde_json::json!({"name": "inserter", "position": [0.5, 0.5], "direction": "west"});
+        let b = serde_json::json!({"name": "inserter", "position": [1.5, 1.5], "direction": "north"});
+        let c = |dy: f64| serde_json::json!({"name": "inserter", "position": [0.5, 2.5], "direction": "west",
+                                              "drop": [1.19921875, dy]});
+        let w = build(&scene(serde_json::json!([a, b])), Prototypes::bundled()).unwrap();
+        assert_eq!((w.inserters[0].pickup, w.inserters[0].drop), (Target::None, Target::Ground));
+        let dead = serde_json::json!({"name": "inserter", "position": [1.5, 0.5], "direction": "north"});
+        let w = build(&scene(serde_json::json!([a, dead])), Prototypes::bundled()).unwrap();
+        assert_eq!(w.inserters[0].drop, Target::None);
+        // второй источник на ту же землю: рядом (мешает первому) — можно, далеко — отказ
+        assert!(build(&scene(serde_json::json!([a, b, c(-2.0 + 70.0 / 256.0)])), Prototypes::bundled()).is_ok());
+        assert!(build(&scene(serde_json::json!([a, b, c(-2.0 + 71.0 / 256.0)])), Prototypes::bundled()).is_err());
     }
 
     #[test]

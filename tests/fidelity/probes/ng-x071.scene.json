@@ -1,0 +1,46 @@
+{
+ "name": "ng-x071",
+ "ticks": 400,
+ "entities": [
+  {
+   "name": "wooden-chest",
+   "position": [
+    -0.5,
+    0.5
+   ],
+   "items": {
+    "iron-plate": 3
+   }
+  },
+  {
+   "name": "inserter",
+   "position": [
+    0.5,
+    0.5
+   ],
+   "direction": "west"
+  },
+  {
+   "name": "wooden-chest",
+   "position": [
+    -0.5,
+    2.5
+   ],
+   "items": {
+    "iron-plate": 3
+   }
+  },
+  {
+   "name": "inserter",
+   "position": [
+    0.5,
+    2.5
+   ],
+   "direction": "west",
+   "drop": [
+    1.4765625,
+    -2.0
+   ]
+  }
+ ]
+}

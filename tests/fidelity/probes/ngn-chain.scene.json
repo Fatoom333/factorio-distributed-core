@@ -1,0 +1,39 @@
+{
+ "name": "ngn-chain",
+ "ticks": 400,
+ "entities": [
+  {
+   "name": "wooden-chest",
+   "position": [
+    -6.5,
+    -5.5
+   ],
+   "items": {
+    "iron-plate": 3
+   }
+  },
+  {
+   "name": "inserter",
+   "position": [
+    -5.5,
+    -5.5
+   ],
+   "direction": "west"
+  },
+  {
+   "name": "inserter",
+   "position": [
+    -4.5,
+    -4.5
+   ],
+   "direction": "north"
+  },
+  {
+   "name": "wooden-chest",
+   "position": [
+    -4.5,
+    -3.5
+   ]
+  }
+ ]
+}

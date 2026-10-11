@@ -1,0 +1,32 @@
+{
+ "name": "nt-drop-ins",
+ "ticks": 300,
+ "entities": [
+  {
+   "name": "wooden-chest",
+   "position": [
+    3.5,
+    0.5
+   ],
+   "items": {
+    "iron-plate": 5
+   }
+  },
+  {
+   "name": "inserter",
+   "position": [
+    4.5,
+    0.5
+   ],
+   "direction": "west"
+  },
+  {
+   "name": "inserter",
+   "position": [
+    5.5,
+    0.5
+   ],
+   "direction": "north"
+  }
+ ]
+}

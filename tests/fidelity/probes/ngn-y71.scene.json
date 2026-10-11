@@ -1,0 +1,46 @@
+{
+ "name": "ngn-y71",
+ "ticks": 400,
+ "entities": [
+  {
+   "name": "wooden-chest",
+   "position": [
+    -6.5,
+    -5.5
+   ],
+   "items": {
+    "iron-plate": 3
+   }
+  },
+  {
+   "name": "inserter",
+   "position": [
+    -5.5,
+    -5.5
+   ],
+   "direction": "west"
+  },
+  {
+   "name": "wooden-chest",
+   "position": [
+    -6.5,
+    -3.5
+   ],
+   "items": {
+    "iron-plate": 3
+   }
+  },
+  {
+   "name": "inserter",
+   "position": [
+    -5.5,
+    -3.5
+   ],
+   "direction": "west",
+   "drop": [
+    1.19921875,
+    -1.72265625
+   ]
+  }
+ ]
+}

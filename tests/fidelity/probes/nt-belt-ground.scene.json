@@ -1,0 +1,22 @@
+{
+ "name": "nt-belt-ground",
+ "ticks": 300,
+ "entities": [
+  {
+   "name": "transport-belt",
+   "position": [
+    3.5,
+    0.5
+   ],
+   "direction": "east"
+  },
+  {
+   "name": "inserter",
+   "position": [
+    4.5,
+    0.5
+   ],
+   "direction": "west"
+  }
+ ]
+}

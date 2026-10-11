@@ -1,0 +1,43 @@
+{
+ "name": "ngp-xm100",
+ "ticks": 300,
+ "entities": [
+  {
+   "name": "wooden-chest",
+   "position": [
+    -0.5,
+    0.5
+   ],
+   "items": {
+    "iron-plate": 2
+   }
+  },
+  {
+   "name": "inserter",
+   "position": [
+    0.5,
+    0.5
+   ],
+   "direction": "west"
+  },
+  {
+   "name": "inserter",
+   "position": [
+    1.5,
+    1.5
+   ],
+   "direction": "north",
+   "pickup": [
+    -0.19140625,
+    -1.0
+   ]
+  },
+  {
+   "name": "wooden-chest",
+   "position": [
+    1.5,
+    2.5
+   ]
+  }
+ ]
+}

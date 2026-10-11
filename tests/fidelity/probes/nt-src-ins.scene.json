@@ -1,0 +1,29 @@
+{
+ "name": "nt-src-ins",
+ "ticks": 300,
+ "entities": [
+  {
+   "name": "inserter",
+   "position": [
+    3.5,
+    0.5
+   ],
+   "direction": "north"
+  },
+  {
+   "name": "inserter",
+   "position": [
+    4.5,
+    0.5
+   ],
+   "direction": "west"
+  },
+  {
+   "name": "wooden-chest",
+   "position": [
+    5.5,
+    0.5
+   ]
+  }
+ ]
+}

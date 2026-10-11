@@ -1,0 +1,14 @@
+{
+ "name": "nt-neither-i",
+ "ticks": 300,
+ "entities": [
+  {
+   "name": "inserter",
+   "position": [
+    4.5,
+    0.5
+   ],
+   "direction": "west"
+  }
+ ]
+}
