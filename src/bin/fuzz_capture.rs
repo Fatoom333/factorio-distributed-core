@@ -15,6 +15,7 @@
 
 use factorio_distributed_core::fidelity;
 use factorio_distributed_core::fuzz;
+use factorio_distributed_core::world::layout::WARMUP_SETTLED;
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -59,6 +60,24 @@ fn move_file(src: &Path, dst: &Path) -> R<()> {
     Ok(())
 }
 
+/// Ждём, пока после постройки сцен пройдёт не меньше `WARMUP_SETTLED` тиков игры — столько же,
+/// сколько модель проигрывает прогрев сцены без поля `warmup`. Первые до 600 тиков после постройки
+/// каждая лента — своя линия, а руки едут к точкам захвата; от длины ожидания зависело бы
+/// начальное состояние (docs/mechanics/belts.md, «Состояние после постройки»). После
+/// `WARMUP_SETTLED` тиков цепочки слиты, заявок нет, руки на месте — это начальное состояние модели.
+async fn wait_settled(c: &mut Conn) -> R<()> {
+    let tick = |s: String| s.trim().parse::<u64>().map_err(|_| format!("tick: {s}"));
+    let built = tick(fd(c, &json!({"op": "tick"})).await?)?;
+    let started = Instant::now();
+    while tick(fd(c, &json!({"op": "tick"})).await?)? < built + WARMUP_SETTLED {
+        if started.elapsed() > Duration::from_secs(120) {
+            return Err(format!("игра не прошла {WARMUP_SETTLED} тиков за 120 с после постройки сцен").into());
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    Ok(())
+}
+
 /// Один пакет: scene_build_many -> scene_run_all (после прогрева) -> ждём конца всех сцен ->
 /// забираем дампы -> scene_clear. Возвращает число снятых сцен и список отказов.
 async fn run_batch(c: &mut Conn, scenes: &[Value], env_dir: &Path, out_dir: &Path) -> R<(usize, Vec<String>)> {
@@ -72,6 +91,7 @@ async fn run_batch(c: &mut Conn, scenes: &[Value], env_dir: &Path, out_dir: &Pat
         let _ = fd(c, &json!({"op": "scene_clear", "all": true})).await;
         return Err(format!("scene_build_many: {r}").into());
     }
+    wait_settled(c).await?;
     let started = Instant::now();
     loop {
         let r = fd(c, &json!({"op": "scene_run_all", "ext": true})).await?;

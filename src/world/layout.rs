@@ -5,12 +5,13 @@ use std::collections::{BTreeMap, HashMap};
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use super::belt::{BeltLine, ItemId, Lane};
+use super::belt::{ItemId, Line, LineGroup, TileLane};
 use super::fixed::{fx_from_f64, hypot_f64, orientation_f32, Fx, TILE};
 use super::inserter::{Hand, HandTarget, Inserter, Target};
 use super::inventory::{Chest, Inventory};
-use super::proto::{BeltProto, InserterProto, Prototypes};
+use super::proto::{BeltProto, InserterProto, Prototypes, TILE_LANE_LEN};
 use super::softfloat::Sf;
+use super::wake::{WakeRef, NONE};
 use super::{BeltTile, Dir, World};
 
 // ---------- сцена ----------
@@ -20,6 +21,13 @@ pub struct Scene {
     pub name: String,
     pub ticks: u64,
     pub entities: Vec<SceneEntity>,
+    /// Сколько тиков прошло от постройки сцены до t = 0 (прогрев, см. [`settle`]). От него
+    /// зависят линии лент (первые до 600 тиков после постройки каждая лента — своя линия) и
+    /// руки манипуляторов (едут от начальной позы к точке захвата). Без поля модель считает,
+    /// что прошло [`WARMUP_SETTLED`] тиков (столько ждут съёмщики): линии слиты, руки на месте,
+    /// все манипуляторы спят.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub warmup: Option<u64>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -32,7 +40,8 @@ pub struct SceneEntity {
     #[serde(default)]
     pub items: Option<BTreeMap<String, u32>>,
     /// Кастомные векторы манипулятора: смещения [dx, dy] от его центра, тайлы
-    /// (мод с `allow_custom_vectors`). Игра хранит точку с усечением вниз до 1/256.
+    /// (мод с `allow_custom_vectors`). Мод записывает абсолютную точку «центр + вектор», игра
+    /// хранит её в 1/256 с усечением к нулю по абсолютной координате.
     #[serde(default)]
     pub pickup: Option<[f64; 2]>,
     #[serde(default)]
@@ -170,9 +179,13 @@ fn check_range(what: &str, i: usize, name: &str, v: [f64; 2], max: f64) -> Resul
     Ok(())
 }
 
-/// Тайл → 1/256 с усечением вниз; значение уже проверено [`check_range`].
-fn floor256(v: f64) -> Fx {
-    (v * 256.0).floor() as Fx
+/// Кастомная точка манипулятора: абсолютная координата `центр + вектор` (тайлы, `double`, как её
+/// считает мод) → 1/256 с усечением к нулю; возвращает смещение от центра в 1/256. При
+/// положительной координате это усечение вниз, при отрицательной — вверх (проверено по эталонам:
+/// `drop` = 1.2 даёт смещение 307/256 при положительной абсолютной координате и 308/256 при
+/// отрицательной). Значения уже проверены [`check_range`].
+fn custom_point(center: f64, v: f64, center_fx: Fx) -> Fx {
+    ((center + v) * 256.0).trunc() as Fx - center_fx
 }
 
 pub fn build(scene: &Scene, protos: &Prototypes) -> Result<World, LayoutError> {
@@ -202,6 +215,8 @@ pub fn build(scene: &Scene, protos: &Prototypes) -> Result<World, LayoutError> {
     let mut inserters: Vec<Inserter> = Vec::new();
     let mut chests: Vec<Chest> = Vec::new();
     let mut at: HashMap<(i32, i32), Kind> = HashMap::new();
+    // номер сущности сцены у каждой ленты — порядок постройки
+    let mut built: Vec<usize> = Vec::new();
 
     for (i, e) in scene.entities.iter().enumerate() {
         check_range("позиция", i, &e.name, e.position, MAX_COORD_TILES)?;
@@ -224,7 +239,11 @@ pub fn build(scene: &Scene, protos: &Prototypes) -> Result<World, LayoutError> {
         };
         let kind = if let Some(bp) = protos.belts.get(&e.name) {
             let proto = proto_index(&mut belt_protos, bp);
-            belts.push(BeltTile { pos, dir, proto, line: 0, k: 0 });
+            let lane = |line: u32| TileLane { line, start: 0, touched: None };
+            let b = u32::try_from(belts.len()).ok().and_then(|b| b.checked_mul(2)).ok_or_else(|| LayoutError("слишком много лент".into()))?;
+            // каждая лента сначала — своя линия на каждую полосу (как сразу после постройки)
+            belts.push(BeltTile { pos, dir, proto, lanes: [lane(b), lane(b + 1)] });
+            built.push(i);
             Kind::Belt(belts.len() - 1)
         } else if let Some(ip) = protos.inserters.get(&e.name) {
             let proto = proto_index(&mut ins_protos, ip);
@@ -238,17 +257,17 @@ pub fn build(scene: &Scene, protos: &Prototypes) -> Result<World, LayoutError> {
             let mut pq = rot64(dir, ip.pickup_q48);
             let mut dq = rot64(dir, ip.insert_q48);
             let (mut pl, mut dl) = (ip.pickup_len, ip.insert_len);
-            // Кастомные векторы из сцены вместо повёрнутых векторов прототипа. Игра округляет
-            // точку вниз до 1/256 (проверено в игре, docs/mechanics/inserters.md); рука идёт
+            // Кастомные векторы из сцены вместо повёрнутых векторов прототипа. Игра хранит
+            // абсолютную точку в 1/256 с усечением к нулю (docs/mechanics/inserters.md); рука идёт
             // к записанной точке.
             let q_of = |v: (Fx, Fx)| ((v.0 as i64) << 40, (v.1 as i64) << 40); // 1/256 → Q48
             if let Some(v) = e.pickup {
-                pv = (floor256(v[0]), floor256(v[1]));
+                pv = (custom_point(e.position[0], v[0], pos.0), custom_point(e.position[1], v[1], pos.1));
                 pq = q_of(pv);
                 pl = hypot_f64(pv.0 as i64, pv.1 as i64);
             }
             if let Some(v) = e.drop {
-                dv = (floor256(v[0]), floor256(v[1]));
+                dv = (custom_point(e.position[0], v[0], pos.0), custom_point(e.position[1], v[1], pos.1));
                 dq = q_of(dv);
                 dl = hypot_f64(dv.0 as i64, dv.1 as i64);
             }
@@ -263,11 +282,28 @@ pub fn build(scene: &Scene, protos: &Prototypes) -> Result<World, LayoutError> {
                 drop_point: (pos.0 + dv.0, pos.1 + dv.1),
                 at_pickup,
                 at_drop,
-                // После прогрева рука стоит у точки захвата (эталон, тик 0), высота 0.
-                hand: Hand { o: at_pickup.o, ext: at_pickup.ext, h: Sf::ZERO },
+                // Только что построенный манипулятор: рука смотрит в сторону `direction`
+                // (откуда берёт), вылет — `starting_distance` прототипа, высота 0; идёт брать.
+                // К точке захвата рука приезжает за прогрев (`settle`).
+                hand: Hand {
+                    o: match dir {
+                        Dir::North => 0,
+                        Dir::East => 1 << 62,
+                        Dir::South => 2 << 62,
+                        Dir::West => 3 << 62,
+                    },
+                    ext: ip.starting_distance,
+                    h: Sf::ZERO,
+                },
                 held: None,
                 held_count: 0,
                 chase: None,
+                has_target: false,
+                pickup_mode: true,
+                awake: false,
+                act_prev: NONE,
+                act_next: NONE,
+                regs: Vec::new(),
             });
             Kind::Inserter
         } else if let Some(cp) = protos.chests.get(&e.name) {
@@ -281,7 +317,7 @@ pub fn build(scene: &Scene, protos: &Prototypes) -> Result<World, LayoutError> {
                     }
                 }
             }
-            chests.push(Chest { pos, inv, fresh: Vec::new() });
+            chests.push(Chest::new(pos, inv));
             Kind::Chest(chests.len() - 1)
         } else if let Some(why) = protos.unsupported.get(&e.name) {
             return err(format!("сущность {i}: {} не поддержан моделью: {why}", e.name));
@@ -318,61 +354,46 @@ pub fn build(scene: &Scene, protos: &Prototypes) -> Result<World, LayoutError> {
             }
         }
     }
-    // next[i] — лента впереди с тем же направлением (продолжение линии).
+    // next[i] — лента впереди с тем же направлением (продолжение цепочки); prev — обратное.
     let next: Vec<Option<usize>> = belts
         .iter()
         .map(|b| belt_at(front_of(b)).filter(|&f| belts[f].dir == b.dir))
         .collect();
-    // Линия: от «головы» назад; голова — лента, у которой впереди нет ленты того же типа.
-    let mut line_of: Vec<Option<u32>> = vec![None; belts.len()];
-    let mut lines: Vec<BeltLine> = Vec::new();
-    let protos: Vec<u8> = belts.iter().map(|b| b.proto).collect();
-    let same_line = |a: usize, b: usize| protos[a] == protos[b];
-    // prev[i] — лента позади (её next == i) с тем же типом
     let mut prev: Vec<Option<usize>> = vec![None; belts.len()];
     for (i, n) in next.iter().enumerate() {
         if let Some(n) = *n {
             prev[n] = Some(i);
         }
     }
-    for head in 0..belts.len() {
-        let is_head = match next[head] {
-            None => true,
-            Some(n) => !same_line(head, n),
-        };
-        if !is_head {
+    // Цепочки: от последней по ходу ленты назад. Полоса цепочки — группа линий.
+    let mut group_of: Vec<Option<u32>> = vec![None; belts.len()];
+    let mut heads: Vec<usize> = Vec::new();
+    for (head, n) in next.iter().enumerate() {
+        if n.is_some() {
             continue;
         }
-        let mut tiles = vec![head as u32];
-        let mut cur = head;
-        while let Some(p) = prev[cur] {
-            if !same_line(p, cur) {
-                break;
-            }
-            tiles.push(p as u32);
-            cur = p;
+        let g = (heads.len() * 2) as u32;
+        heads.push(head);
+        let mut cur = Some(head);
+        while let Some(c) = cur {
+            group_of[c] = Some(g);
+            cur = prev[c];
         }
-        let li = lines.len() as u32;
-        for (k, &t) in tiles.iter().enumerate() {
-            line_of[t as usize] = Some(li);
-            belts[t as usize].line = li;
-            belts[t as usize].k = k as u32;
-        }
-        let speed = belt_protos[belts[head].proto as usize].speed;
-        lines.push(BeltLine { tiles, speed, lanes: [Lane::default(), Lane::default()], next: None });
     }
-    // Кольцо из лент одного типа (без головы) — не M0.
-    if line_of.iter().any(|l| l.is_none()) {
+    // Кольцо лент (цепочка без последней ленты) — не M0.
+    if group_of.iter().any(|g| g.is_none()) {
         return err("замкнутое кольцо лент — не M0".into());
     }
-    // Связи линий разных типов.
-    for line in lines.iter_mut() {
-        let head = line.tiles[0] as usize;
-        if let Some(n) = next[head] {
-            line.next = Some(belts[n].line);
+    let mut lines: Vec<Line> = Vec::with_capacity(belts.len() * 2);
+    for (b, tile) in belts.iter().enumerate() {
+        let speed = belt_protos[tile.proto as usize].speed;
+        let g = group_of[b].expect("проверено выше");
+        for lane in 0..2u8 {
+            let mut l = Line::new(lane, g + lane as u32, speed, TILE_LANE_LEN);
+            l.tiles.push(b as u32);
+            lines.push(l);
         }
     }
-    let line_order = line_order(&lines)?;
 
     // ---- цели манипуляторов ----
     for ins in inserters.iter_mut() {
@@ -388,96 +409,123 @@ pub fn build(scene: &Scene, protos: &Prototypes) -> Result<World, LayoutError> {
             Some(Kind::Belt(b)) => Target::Belt(*b as u32),
             _ => Target::None,
         };
-        // Точка выгрузки ровно на хвосте линии (на её внешнем крае): поведение игры не сверено.
-        if let Target::Belt(b) = ins.drop {
-            let tile = &belts[b as usize];
-            let (_, drop_pos) = tile.drop_lane_pos(ins.drop_point);
-            if drop_pos >= lines[tile.line as usize].len() {
-                return err(format!(
-                    "манипулятор {:?}: точка выгрузки на хвосте линии лент — не сверено с игрой",
-                    ins.pos
-                ));
-            }
-        }
     }
 
-    let ins_order = inserter_order(&inserters, &chests);
-    Ok(World {
+    let mut world = World {
         tick: 0,
         next_uid: 0,
-        fresh_uid: 0,
         item_names,
         item_stack,
         belt_protos,
         ins_protos,
         belts,
         lines,
-        line_order,
+        free_lines: Vec::new(),
+        line_groups: vec![LineGroup::default(); heads.len() * 2],
+        active_groups: Vec::new(),
+        line_alarms: Vec::new(),
+        group_scratch: Vec::new(),
+        chain_scratch: Vec::new(),
+        line_cursor: None,
+        remerges: Vec::new(),
+        remerge_seq: 0,
         inserters,
-        ins_order,
+        ins_head: NONE,
         chests,
-    })
-}
-
-/// Порядок обновления манипуляторов.
-///
-/// Проверено по эталону (пробы `tests/fidelity/probes/t1*`, `c1*`, `c3*`): последний
-/// разбуженный ходит первым. Объяснение (вывод из проб, исходников движка нет): у игры список
-/// активных сущностей, и проснувшийся манипулятор встаёт в его **начало**. Мод строит сцену, ждёт прогрева (манипуляторы засыпают: брать
-/// нечего) и в t = 0 наполняет сундуки по порядку сцены; наполнение сундука будит манипуляторы,
-/// которые из него берут. Поэтому порядок — обратный порядку наполнения их сундуков-источников,
-/// а не порядку постройки: пробы t1c/t1d (манипуляторы построены в одном порядке, сундуки — в
-/// другом) решает порядок сундуков. Несколько манипуляторов у одного сундука просыпаются в
-/// порядке постройки (последний построенный — первым; c1a–c1d). Наполнение сундука-приёмника
-/// не будит (вариант «будит» ломает c4b).
-///
-/// Не проверено: относительный порядок манипуляторов, которых сундуки не будят (берут с ленты),
-/// — они остаются в конце в порядке постройки; в игре они просыпаются позже, когда на тайл
-/// приходит предмет (конкуренция стоков c2*, c4 — вне M0).
-fn inserter_order(inserters: &[Inserter], chests: &[Chest]) -> Vec<u32> {
-    // Номер «пробуждения»: индекс сундука-источника, если мод его наполняет (сундуки
-    // наполняются по порядку сцены; пустые мод не трогает).
-    let wake = |ins: &Inserter| match ins.pickup {
-        Target::Chest(c) if chests[c as usize].inv.slots.iter().any(|s| s.is_some()) => Some(c),
-        _ => None,
     };
-    let mut woken: Vec<(u32, u32)> =
-        inserters.iter().enumerate().filter_map(|(i, ins)| wake(ins).map(|c| (c, i as u32))).collect();
-    // каждый проснувшийся встаёт в начало списка: позже разбуженный — раньше
-    woken.sort_unstable_by(|a, b| b.cmp(a));
-    let mut order: Vec<u32> = woken.into_iter().map(|(_, i)| i).collect();
-    order.extend(inserters.iter().enumerate().filter(|(_, ins)| wake(ins).is_none()).map(|(i, _)| i as u32));
-    order
+    settle(&mut world, &next, &built, scene.warmup);
+    Ok(world)
 }
 
-/// Порядок обновления линий: каждая — после той, в которую выводит (`next`). У каждой
-/// линии не больше одного `next`, поэтому граф — лес цепочек; кольцо из лент разных типов
-/// (обычная → быстрая → обычная по кругу) — ошибка сцены. Без рекурсии.
-fn line_order(lines: &[BeltLine]) -> Result<Vec<u32>, LayoutError> {
-    let n = lines.len();
-    // 0 — не посещена, 1 — в текущей цепочке, 2 — готова
-    let mut state = vec![0u8; n];
-    let mut order = Vec::with_capacity(n);
-    let mut chain = Vec::new();
-    for start in 0..n {
-        let mut cur = Some(start);
-        while let Some(li) = cur {
-            match state[li] {
-                2 => break,
-                1 => return err("кольцо лент — не M0".into()),
-                _ => {}
-            }
-            state[li] = 1;
-            chain.push(li);
-            cur = lines[li].next.map(|x| x as usize);
+/// Прогрев длиннее этого ничего не меняет: за 600 тиков исполняются все заявки на слияние
+/// линий, а рука с самым дальним допустимым вектором ([`MAX_VECTOR_TILES`]) доезжает до точки
+/// захвата меньше чем за 700 тиков. Съёмщики (`scene_capture`, `fuzz_capture`) ждут после
+/// постройки столько же.
+pub const WARMUP_SETTLED: u64 = 1024;
+
+/// Прогрев сцены: от постройки до t = 0 — так, как это происходит в игре при съёмке эталона.
+///
+/// 1. Сущности строятся в одном тике по порядку сцены. Построенный манипулятор активен и встаёт
+///    в начало списка активных; рука — в начальной позе. Ленты — по линии на тайл, с заявками
+///    на слияние ([`connect_belts`]). Сундуки пока пустые.
+/// 2. `warmup` тиков мир идёт сам: руки едут к точкам захвата, манипуляторы засыпают (брать
+///    нечего) — каждый в тот тик, когда доехала его рука; линии лент сливаются и при этом будят
+///    тех, кто на них спал. Порядок записи в общий список спящих — по тику прихода руки, при
+///    равенстве — по списку активных (построенный позже — раньше).
+/// 3. В t = 0 мод наполняет сундуки по порядку сцены; каждое наполнение будит спящих у этого
+///    сундука.
+///
+/// Отсюда начальный порядок манипуляторов (проверено по эталону: пробы `t1*`, `c1*`, `c3*`,
+/// `ins-warm-*`; docs/mechanics/inserters.md, «Начальный порядок»).
+fn settle(world: &mut World, next: &[Option<usize>], built: &[usize], warmup: Option<u64>) {
+    let w = warmup.unwrap_or(WARMUP_SETTLED).min(WARMUP_SETTLED) as i64;
+    connect_belts(world, next, built, -w);
+    for i in 0..world.inserters.len() {
+        world.wake(i);
+    }
+    let stock: Vec<Inventory> = world
+        .chests
+        .iter_mut()
+        .map(|c| {
+            let empty = Inventory::new(c.inv.slots.len() as u32);
+            std::mem::replace(&mut c.inv, empty)
+        })
+        .collect();
+    for now in -w..0 {
+        // все спят и заявок на слияние нет — дальше ничего не изменится
+        if world.ins_head == NONE && world.remerges.is_empty() {
+            break;
         }
-        // цепочка от `start` вниз по течению: обновлять с конца
-        while let Some(li) = chain.pop() {
-            state[li] = 2;
-            order.push(li as u32);
+        world.step_belts(now);
+        world.step_inserters(now);
+    }
+    for (c, inv) in stock.into_iter().enumerate() {
+        let filled = inv.slots.iter().any(|s| s.is_some());
+        world.chests[c].inv = inv;
+        if filled {
+            world.alarm(WakeRef::ChestOut(c as u32));
         }
     }
-    Ok(order)
+}
+
+/// Состояние линий после постройки сцены (постройка — в тике `start`).
+///
+/// Новая лента — своя линия на каждую полосу. Когда лента соединяется с соседней (та, что
+/// построена позже, соединяется с уже стоящей), на последнюю по ходу линию цепочки ставится
+/// заявка на перенарезку; первая сработавшая заявка сливает всю цепочку. Поэтому первые до 600
+/// тиков после постройки линии стоят по одному тайлу, а момент слияния зависит от порядка
+/// постройки и координат (проверено по эталону: пробы `build-*`, прогрев 60 тиков).
+///
+/// Все сущности сцены строятся в одном тике, по порядку сцены. Заявки исполняет прогрев
+/// ([`settle`]).
+fn connect_belts(world: &mut World, next: &[Option<usize>], built: &[usize], start: i64) {
+    let link = |world: &mut World, up: usize, down: usize| {
+        for lane in 0..2 {
+            let (u, d) = ((up * 2 + lane) as u32, (down * 2 + lane) as u32);
+            world.lines[u as usize].out = Some(d);
+            world.lines[d as usize].inp = Some(u);
+            world.schedule_remerge(u, start);
+        }
+    };
+    // по порядку постройки: лента соединяется с теми соседями, что уже стоят
+    let mut prev: Vec<Option<usize>> = vec![None; next.len()];
+    for (i, n) in next.iter().enumerate() {
+        if let Some(n) = *n {
+            prev[n] = Some(i);
+        }
+    }
+    let mut order: Vec<usize> = (0..next.len()).collect();
+    order.sort_by_key(|&b| built[b]);
+    let mut done = vec![false; next.len()];
+    for b in order {
+        if let Some(n) = next[b].filter(|&n| done[n]) {
+            link(world, b, n);
+        }
+        if let Some(p) = prev[b].filter(|&p| done[p]) {
+            link(world, p, b);
+        }
+        done[b] = true;
+    }
 }
 
 #[cfg(test)]
@@ -513,9 +561,9 @@ mod tests {
         assert!(build(&scene(serde_json::json!([ins(serde_json::json!([0.0, -1.0]), serde_json::json!([16.0, 0.0]))])), Prototypes::bundled()).is_ok());
     }
 
-    /// Точка выгрузки ровно на хвосте линии не сверена с игрой — сцена отклоняется.
+    /// Точка выгрузки ровно на заднем крае тайла — кладка на 255 (пробы `edge-*`).
     #[test]
-    fn drop_on_line_tail_rejected() {
+    fn drop_on_tile_back_edge() {
         let ents = |dx: f64| {
             serde_json::json!([
                 {"name": "transport-belt", "position": [0.5, 0.5], "direction": "east"},
@@ -523,11 +571,33 @@ mod tests {
                  "pickup": [0.0, 1.0], "drop": [dx, -0.796875]},
             ])
         };
-        // x = 0.0 — западный край тайла: p = 256 = длина линии
-        let why = rejected(ents(-0.5));
-        assert!(why.contains("хвосте"), "{why}");
-        // чуть внутрь тайла — обычная кладка
-        assert!(build(&scene(ents(-0.49609375)), Prototypes::bundled()).is_ok());
+        let w = build(&scene(ents(-0.5)), Prototypes::bundled()).unwrap();
+        assert_eq!(w.belts[0].drop_lane_pos(w.inserters[0].drop_point), (1, 255));
+        let w = build(&scene(ents(-0.49609375)), Prototypes::bundled()).unwrap();
+        assert_eq!(w.belts[0].drop_lane_pos(w.inserters[0].drop_point), (1, 255));
+        let w = build(&scene(ents(0.49609375)), Prototypes::bundled()).unwrap();
+        assert_eq!(w.belts[0].drop_lane_pos(w.inserters[0].drop_point), (1, 1));
+    }
+
+    /// Начальная нарезка: цепочка одной скорости — одна линия на полосу; стык скоростей —
+    /// граница линий; сразу после постройки (прогрев 0) — по линии на тайл.
+    #[test]
+    fn initial_lines() {
+        let belt = |name: &str, x: f64| serde_json::json!({"name": name, "position": [x, 0.5], "direction": "east"});
+        let ents = serde_json::json!([
+            belt("transport-belt", 0.5), belt("transport-belt", 1.5), belt("fast-transport-belt", 2.5), belt("fast-transport-belt", 3.5),
+        ]);
+        let w = build(&scene(ents.clone()), Prototypes::bundled()).unwrap();
+        let alive: Vec<_> = w.lines.iter().filter(|l| l.alive).map(|l| (l.lane, l.tiles.clone())).collect();
+        assert_eq!(alive.len(), 4);
+        assert!(alive.contains(&(0, vec![3, 2])) && alive.contains(&(1, vec![1, 0])));
+        assert_eq!((w.belts[0].lanes[0].start, w.belts[1].lanes[0].start), (256, 0));
+        assert!(w.remerges.is_empty() && w.line_groups.iter().all(|g| g.active.is_empty()));
+        let mut sc = scene(ents);
+        sc.warmup = Some(0);
+        let w = build(&sc, Prototypes::bundled()).unwrap();
+        assert_eq!(w.lines.iter().filter(|l| l.alive).count(), 8);
+        assert!(!w.remerges.is_empty());
     }
 
     #[test]
@@ -539,11 +609,7 @@ mod tests {
             {"name": "transport-belt", "position": [1.5, 1.5], "direction": "west"},
             {"name": "fast-transport-belt", "position": [0.5, 1.5], "direction": "north"},
         ]));
-        // повороты в M0 не поддержаны — кольцо отсекается раньше; прямое кольцо невозможно,
-        // поэтому проверяем сам обход на искусственном графе ниже.
+        // повороты в M0 не поддержаны — кольцо отсекается при сборке
         assert!(build(&s, Prototypes::bundled()).is_err());
-        let line = |next: Option<u32>| BeltLine { tiles: vec![0], speed: 8, lanes: Default::default(), next };
-        assert!(line_order(&[line(Some(1)), line(Some(2)), line(Some(0))]).is_err());
-        assert_eq!(line_order(&[line(Some(1)), line(None), line(Some(0))]).unwrap(), vec![1, 0, 2]);
     }
 }

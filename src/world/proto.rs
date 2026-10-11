@@ -74,6 +74,9 @@ pub struct InserterProto {
     /// 2.69921875 = 1.5 + 307/256; `scene_capture` сверяет точки с игрой в каждой сцене).
     pub pickup: (Fx, Fx),
     pub insert: (Fx, Fx),
+    /// `starting_distance` — вылет руки только что построенного манипулятора, тайлы, `double`
+    /// (в прототипах base: 0.7 по умолчанию, у длиннорукого 1.7).
+    pub starting_distance: Sf,
 }
 
 /// Сундук (`container` в data.raw).
@@ -215,6 +218,10 @@ impl Prototypes {
             if !(rs > 0.0 && rs < 1.0 && es > 0.0) {
                 return Err(format!("{who}: скорости вне диапазона"));
             }
+            let sd = num(p, "starting_distance", &who)?;
+            if !(sd.is_finite() && (0.0..=64.0).contains(&sd)) {
+                return Err(format!("{who}: starting_distance вне диапазона"));
+            }
             let pk = vec2(p, "pickup_position", &who)?;
             let ins = vec2(p, "insert_position", &who)?;
             out.inserters.insert(
@@ -229,6 +236,7 @@ impl Prototypes {
                     insert_q48: (q48(ins.0), q48(ins.1)),
                     pickup: (fx_trunc(pk.0), fx_trunc(pk.1)),
                     insert: (fx_trunc(ins.0), fx_trunc(ins.1)),
+                    starting_distance: Sf::from_f64(sd),
                 },
             );
         }
@@ -276,6 +284,7 @@ mod tests {
         assert_eq!((i.pickup, i.insert), ((0, -256), (0, 307)));
         let l = &p.inserters["long-handed-inserter"];
         assert_eq!((l.pickup, l.insert), ((0, -512), (0, 563))); // {0,-2}, {0,2.2}: 563.2 → 563
+        assert_eq!((i.starting_distance, l.starting_distance), (Sf::from_f64(0.7), Sf::from_f64(1.7)));
         assert!(p.inserters.contains_key("fast-inserter"));
         for n in ["burner-inserter", "bulk-inserter", "stack-inserter"] {
             assert!(p.unsupported.contains_key(n), "{n}");
@@ -323,6 +332,7 @@ mod tests {
             let r = &d["inserter"][&i.name];
             assert_eq!(turn_from_f64(r["rotation_speed"].as_f64().unwrap()), i.rotation_speed, "{}", i.name);
             assert_eq!(Sf::from_f64(r["extension_speed"].as_f64().unwrap()), i.extension_speed, "{}", i.name);
+            assert_eq!(Sf::from_f64(r["starting_distance"].as_f64().unwrap_or(0.7)), i.starting_distance, "{}", i.name);
         }
         for c in p.chests.values() {
             assert_eq!(d["container"][&c.name]["inventory_size"].as_u64().unwrap() as u32, c.slots, "{}", c.name);

@@ -22,6 +22,7 @@ use serde::Serialize;
 use super::belt::ItemId;
 use super::fixed::{hand_offset, Fx, Turn};
 use super::softfloat::{Sf, P32, P64};
+use super::wake::WakeRef;
 
 /// Куда смотрит манипулятор (откуда берёт) и куда кладёт.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize)]
@@ -235,4 +236,16 @@ pub struct Inserter {
     /// Предмет на ленте, за которым едет рука (`uid`): манипулятор держится за него,
     /// пока тот на тайле захвата (проверено по эталону two-lanes, тик 282).
     pub chase: Option<u64>,
+    /// «Была выбрана цель на ленте»: ставится при удачном выборе предмета, снимается паузой
+    /// после потери цели и отказом приёмника; взятие предмета его не снимает.
+    pub has_target: bool,
+    /// Фаза: `true` — идёт брать, `false` — идёт класть.
+    pub pickup_mode: bool,
+    /// Стоит ли в списке активных (`World::ins_head`); спящий не обновляется.
+    pub awake: bool,
+    /// Соседи в списке активных (`wake::NONE` — нет).
+    pub act_prev: u32,
+    pub act_next: u32,
+    /// Списки спящих, в которые он записан (не больше трёх: две полосы и цель выгрузки).
+    pub regs: Vec<WakeRef>,
 }

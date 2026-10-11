@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use factorio_distributed_core::fidelity;
-use factorio_distributed_core::world::layout::Scene;
+use factorio_distributed_core::world::layout::{Scene, WARMUP_SETTLED};
 use factorio_distributed_core::world::World;
 use rcon::Connection;
 use tokio::net::TcpStream;
@@ -57,6 +57,24 @@ fn load_job(path: &Path) -> R<Job> {
     Ok(Job { name: scene.name.clone(), ticks: scene.ticks, json, world, out_dir })
 }
 
+/// Ждём, пока после постройки сцен пройдёт не меньше `WARMUP_SETTLED` тиков игры — столько же,
+/// сколько модель проигрывает прогрев сцены без поля `warmup`. Первые до 600 тиков после постройки
+/// каждая лента — своя линия, а руки едут к точкам захвата; от длины ожидания зависело бы
+/// начальное состояние (docs/mechanics/belts.md, «Состояние после постройки»). После
+/// `WARMUP_SETTLED` тиков цепочки слиты, заявок нет, руки на месте — это начальное состояние модели.
+async fn wait_settled(c: &mut Conn) -> R<()> {
+    let tick = |s: String| s.trim().parse::<u64>().map_err(|_| format!("tick: {s}"));
+    let built = tick(fd(c, &serde_json::json!({"op": "tick"})).await?)?;
+    let started = Instant::now();
+    while tick(fd(c, &serde_json::json!({"op": "tick"})).await?)? < built + WARMUP_SETTLED {
+        if started.elapsed() > Duration::from_secs(120) {
+            return Err(format!("игра не прошла {WARMUP_SETTLED} тиков за 120 с после постройки сцен").into());
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    Ok(())
+}
+
 async fn capture(c: &mut Conn, jobs: &[Job], env_dir: &Path, speed: f64) -> R<()> {
     // Старые эталоны в script-output убираем, чтобы не принять их за новые.
     for j in jobs {
@@ -74,6 +92,13 @@ async fn capture(c: &mut Conn, jobs: &[Job], env_dir: &Path, speed: f64) -> R<()
     }
     println!("геометрия модели совпала с игрой ({} сцен)", jobs.len());
 
+    // Линии лент после постройки сливаются не сразу — ждём (сцены с полем `warmup` модель
+    // строит с заданным прогревом; выдержать его точно съёмщик не умеет и не ждёт).
+    if jobs.iter().all(|j| j.json.get("warmup").map_or(true, |w| w.is_null())) {
+        wait_settled(c).await?;
+    } else {
+        println!("внимание: в сцене задан warmup — съёмщик не выдерживает его точно");
+    }
     // Манипуляторам нужно прогреться (энергия), мод просит подождать.
     let started = Instant::now();
     loop {

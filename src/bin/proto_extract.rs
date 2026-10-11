@@ -38,6 +38,7 @@ const INSERTER_FIELDS: Fields = &[
     ("energy_source", None),
     ("bulk", Some("false")),
     ("stack_size_bonus", Some("0")),
+    ("starting_distance", Some("0.7")),
     ("uses_inserter_stack_size_bonus", Some("true")),
     ("chases_belt_items", Some("true")),
     ("wait_for_full_hand", Some("false")),

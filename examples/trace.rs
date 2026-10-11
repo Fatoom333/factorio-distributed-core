@@ -35,16 +35,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let (_, py) = hand_offset(ins.hand.o, ins.hand.ext);
         let game_h = py as i32 - (wi.hand[1] - ins.pos.1);
         let cand = match ins.pickup {
-            Target::Belt(b) => w.belt_pick_candidate(ins, b as usize).map(|(l, i, _)| {
-                let li = w.belts[b as usize].line as usize;
-                let it = &w.lines[li].lanes[l].items[i];
-                format!("L{l} P{} uid{}", it.pos, it.uid)
+            Target::Belt(b) => w.select_belt_item(idx, b as usize).0.map(|(l, i, p)| {
+                let tl = &w.belts[b as usize].lanes[l];
+                format!("L{l} P{p} uid{}", w.lines[tl.line as usize].items[i].uid)
             }),
             _ => None,
         };
         let mark = if wi == gi { "" } else { "<<<" };
         println!(
-            "t={} want {:?} {:?} | got {:?} {:?} | o={o:.6} ext={e:.5} h={h:.3} game_h~[{game_h},{}) chase={:?} next={:?} {mark}",
+            "t={} want {:?} {:?} | got {:?} {:?} | o={o:.6} ext={e:.5} h={h:.3} game_h~[{game_h},{}) chase={:?} next={:?} {} order={:?} {mark}",
             want.t,
             wi.held,
             [wi.hand[0] - ins.pos.0, wi.hand[1] - ins.pos.1],
@@ -53,6 +52,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             game_h + 1,
             ins.chase,
             cand,
+            if ins.awake { "awake" } else { "asleep" },
+            w.active_inserters(),
         );
     }
     Ok(())

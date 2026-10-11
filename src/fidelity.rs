@@ -118,6 +118,11 @@ pub fn diff(want: &TickDump, got: &TickDump) -> Option<String> {
 
 /// Прогон сцены против эталона. Останавливается на первом расхождении.
 pub fn run(scene: &Scene, dump: &[TickDump]) -> Result<Report, Box<dyn std::error::Error>> {
+    run_with(scene, dump, false)
+}
+
+/// То же; `belts_only` — сверять только ленты (остальные поля снимка не сравниваются).
+pub fn run_with(scene: &Scene, dump: &[TickDump], belts_only: bool) -> Result<Report, Box<dyn std::error::Error>> {
     let mut world = World::from_scene(scene, crate::world::proto::Prototypes::bundled())?;
     let total = dump.len().saturating_sub(1) as u64;
     let mut report = Report { scene: scene.name.clone(), total_ticks: total, matched: 0, first_mismatch: None };
@@ -126,6 +131,12 @@ pub fn run(scene: &Scene, dump: &[TickDump]) -> Result<Report, Box<dyn std::erro
             world.step();
         }
         let got = world.dump();
+        if belts_only && want.belts == got.belts {
+            if i > 0 {
+                report.matched += 1;
+            }
+            continue;
+        }
         if let Some(d) = diff(want, &got) {
             report.first_mismatch = Some(format!("тик {}: {}", want.t, d));
             return Ok(report);

@@ -25,7 +25,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         fuzz::check_scene(&s)?;
         for e in &s.entities {
             *stats.entry(e.name.to_string()).or_default() += 1;
-            if e.pickup.is_some() {
+            if e.pickup.is_some() || e.drop.is_some() {
                 *stats.entry("(кастомный вектор)".into()).or_default() += 1;
             }
         }

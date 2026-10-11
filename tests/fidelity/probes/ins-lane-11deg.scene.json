@@ -1,0 +1,97 @@
+{
+ "entities": [
+  {
+   "items": {
+    "iron-plate": 100
+   },
+   "name": "wooden-chest",
+   "position": [
+    0.5,
+    -1.5
+   ]
+  },
+  {
+   "direction": "north",
+   "name": "inserter",
+   "position": [
+    0.5,
+    -0.5
+   ]
+  },
+  {
+   "items": {
+    "iron-plate": 100
+   },
+   "name": "wooden-chest",
+   "position": [
+    0.5,
+    2.5
+   ]
+  },
+  {
+   "direction": "south",
+   "name": "inserter",
+   "position": [
+    0.5,
+    1.5
+   ]
+  },
+  {
+   "direction": "east",
+   "name": "transport-belt",
+   "position": [
+    0.5,
+    0.5
+   ]
+  },
+  {
+   "direction": "east",
+   "name": "transport-belt",
+   "position": [
+    1.5,
+    0.5
+   ]
+  },
+  {
+   "direction": "east",
+   "name": "transport-belt",
+   "position": [
+    2.5,
+    0.5
+   ]
+  },
+  {
+   "direction": "east",
+   "name": "transport-belt",
+   "position": [
+    3.5,
+    0.5
+   ]
+  },
+  {
+   "direction": "north",
+   "drop": [
+    0,
+    1
+   ],
+   "name": "fast-inserter",
+   "pickup": [
+    1.0,
+    -5.0
+   ],
+   "position": [
+    2.5,
+    5.5
+   ]
+  },
+  {
+   "name": "wooden-chest",
+   "position": [
+    2.5,
+    6.5
+   ]
+  }
+ ],
+ "name": "ins-lane-11deg",
+ "ticks": 200
+}

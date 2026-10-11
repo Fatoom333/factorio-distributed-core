@@ -107,33 +107,23 @@ pub struct Chest {
     /// Центр, 1/256 тайла.
     pub pos: (Fx, Fx),
     pub inv: Inventory,
-    /// Сколько положено манипуляторами в текущем тике, по типу предмета (их ещё нельзя
-    /// взять). Обычно 0–1 записей; очищается в начале тика.
-    pub fresh: Vec<(ItemId, u32)>,
+    /// Спящие манипуляторы (индексы в `World::inserters`): ждут предмета (берут из сундука) и
+    /// ждут места (кладут в сундук). Порядок — порядок засыпания (см. `wake`).
+    pub out_list: Vec<u32>,
+    pub in_list: Vec<u32>,
 }
 
 impl Chest {
-    pub fn add_fresh(&mut self, item: ItemId, n: u32) {
-        match self.fresh.iter_mut().find(|(i, _)| *i == item) {
-            Some((_, c)) => *c += n,
-            None => self.fresh.push((item, n)),
-        }
+    pub fn new(pos: (Fx, Fx), inv: Inventory) -> Chest {
+        Chest { pos, inv, out_list: Vec::new(), in_list: Vec::new() }
     }
+}
 
-    fn fresh_of(&self, item: ItemId) -> u32 {
-        self.fresh.iter().find(|(i, _)| *i == item).map_or(0, |(_, c)| *c)
-    }
-
-    /// Предмет, который возьмёт манипулятор: последний непустой слот, чей предмет есть в
-    /// сундуке сверх положенного в этом тике (манипулятор берёт с конца инвентаря —
-    /// проверено по эталону, поле `slots`; сундук с двумя типами — probes/p13-twoitems).
-    pub fn takeable(&self) -> Option<ItemId> {
-        self.inv
-            .slots
-            .iter()
-            .rev()
-            .flatten()
-            .map(|s| s.item)
-            .find(|&item| self.inv.count(item) > self.fresh_of(item))
+impl Inventory {
+    /// Все слоты заняты полными стопками (`stack_size` — размер стопки по индексу предмета).
+    /// Манипулятор, который кладёт в такой сундук, вообще не выбирает предмет: встаёт в точку
+    /// захвата и ждёт места.
+    pub fn is_full(&self, stack_size: &[u32]) -> bool {
+        self.slots.iter().all(|s| s.is_some_and(|st| st.count >= stack_size[st.item as usize]))
     }
 }

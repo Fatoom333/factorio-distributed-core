@@ -1,7 +1,11 @@
 //! Отчёт фаззера M0: для каждой снятой сцены строит модель ядра, гонит её тик в тик и сверяет
 //! с эталоном из игры; сводит первые расхождения по видам.
 //!
-//!   cargo run --release --bin fuzz_report -- --run <папка прогона> [--threads 8]
+//!   cargo run --release --bin fuzz_report -- --run <папка прогона> [--threads 8] [--list]
+//!       [--belts-only] [--warmup N]
+//!
+//! `--belts-only` — сверять только ленты (правила лент отдельно от руки манипулятора);
+//! `--warmup N` — считать, что от постройки сцен до t = 0 прошло N тиков (поле `warmup` сцены).
 //!
 //! Вид расхождения — «сущность/поле» (`belt/lines`, `inserter/hand`, `chest/slots`, ...). По
 //! каждому виду печатается число сцен и до трёх минимальных примеров (минимальный — с
@@ -86,13 +90,17 @@ fn first_diff(want: &TickDump, got: &TickDump) -> Option<(String, String)> {
 
 /// Сравнение модели с эталоном. `Ok(None)` — совпало на всех тиках, `Ok(Some(..))` — первое
 /// расхождение, `Err` — модель не умеет эту сцену.
-fn compare(scene: &Scene, dump: &[TickDump]) -> Result<Option<FirstMismatch>, String> {
+fn compare(scene: &Scene, dump: &[TickDump], belts_only: bool) -> Result<Option<FirstMismatch>, String> {
     let mut world = World::from_scene(scene, factorio_distributed_core::world::proto::Prototypes::bundled()).map_err(|e| e.to_string())?;
     for (i, want) in dump.iter().enumerate() {
         if i > 0 {
             world.step();
         }
-        if let Some((kind, detail)) = first_diff(want, &world.dump()) {
+        let got = world.dump();
+        if belts_only && want.belts == got.belts {
+            continue;
+        }
+        if let Some((kind, detail)) = first_diff(want, &got) {
             return Ok(Some(FirstMismatch { tick: want.t, kind, detail }));
         }
     }
@@ -119,11 +127,14 @@ fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
     }
 }
 
-fn check_one(run: &Path, name: &str) -> (usize, Outcome) {
-    let scene = match fidelity::load_scene(&run.join(format!("{name}.scene.json"))) {
+fn check_one(run: &Path, name: &str, belts_only: bool, warmup: Option<u64>) -> (usize, Outcome) {
+    let mut scene = match fidelity::load_scene(&run.join(format!("{name}.scene.json"))) {
         Ok(s) => s,
         Err(_) => return (0, Outcome::Broken),
     };
+    if warmup.is_some() {
+        scene.warmup = warmup;
+    }
     let n = scene.entities.len();
     let dump = match fidelity::load_dump(&run.join(format!("{name}.dump.jsonl"))) {
         Ok(d) => d,
@@ -132,7 +143,7 @@ fn check_one(run: &Path, name: &str) -> (usize, Outcome) {
     if dump.len() as u64 != scene.ticks + 1 {
         return (n, Outcome::Broken);
     }
-    let r = std::panic::catch_unwind(|| compare(&scene, &dump));
+    let r = std::panic::catch_unwind(|| compare(&scene, &dump, belts_only));
     match r {
         Ok(Ok(None)) => (n, Outcome::Match),
         Ok(Ok(Some(m))) => (n, Outcome::Mismatch(m)),
@@ -148,6 +159,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let a = fuzz::Args::parse();
     let run = a.get("run").ok_or("использование: fuzz_report --run <папка прогона> [--threads N]")?;
     let threads: usize = a.num("threads", 8);
+    let belts_only = a.flag("belts-only");
+    let warmup: Option<u64> = a.get("warmup").and_then(|s| s.parse().ok());
     let run = Path::new(run);
     let mut names: Vec<String> = std::fs::read_dir(run)?
         .filter_map(|e| e.ok())
@@ -163,7 +176,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             sc.spawn(|| loop {
                 let i = next.fetch_add(1, Ordering::Relaxed);
                 let Some(name) = names.get(i) else { break };
-                let (n, o) = check_one(run, name);
+                let (n, o) = check_one(run, name, belts_only, warmup);
                 results.lock().unwrap().push((name.clone(), n, o));
             });
         }
@@ -186,7 +199,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 *reasons.entry(why).or_default() += 1;
             }
             Outcome::Mismatch(m) => {
-                let custom = std::fs::read_to_string(run.join(format!("{name}.scene.json"))).is_ok_and(|t| t.contains("\"pickup\""));
+                // кастомные векторы — у какого-нибудь манипулятора задан `pickup` или `drop`
+                let custom = fidelity::load_scene(&run.join(format!("{name}.scene.json")))
+                    .is_ok_and(|sc| sc.entities.iter().any(|e| e.pickup.is_some() || e.drop.is_some()));
                 let c = by_custom.entry((m.kind.clone(), custom)).or_default();
                 *c += 1;
                 if a.flag("list") {
