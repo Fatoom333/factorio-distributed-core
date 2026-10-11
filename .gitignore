@@ -11,3 +11,4 @@ script-output/
 *.log
 bench-env*/
 fuzz-runs/
+__pycache__/
