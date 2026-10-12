@@ -1,0 +1,304 @@
+{
+ "entities": [
+  {
+   "items": {
+    "iron-plate": 400
+   },
+   "name": "steel-chest",
+   "position": [
+    0.5,
+    2.5
+   ]
+  },
+  {
+   "direction": "south",
+   "name": "inserter",
+   "position": [
+    0.5,
+    1.5
+   ]
+  },
+  {
+   "items": {
+    "iron-plate": 400
+   },
+   "name": "steel-chest",
+   "position": [
+    6.5,
+    2.5
+   ]
+  },
+  {
+   "direction": "south",
+   "name": "inserter",
+   "position": [
+    6.5,
+    1.5
+   ]
+  },
+  {
+   "items": {
+    "iron-plate": 1595
+   },
+   "name": "wooden-chest",
+   "position": [
+    6.5,
+    -1.5
+   ]
+  },
+  {
+   "direction": "south",
+   "drop": [
+    3,
+    -1.2
+   ],
+   "name": "fast-inserter",
+   "position": [
+    3.5,
+    -0.5
+   ]
+  },
+  {
+   "direction": "south",
+   "drop": [
+    -3,
+    -1.2
+   ],
+   "name": "fast-inserter",
+   "position": [
+    9.5,
+    -0.5
+   ]
+  },
+  {
+   "items": {
+    "copper-plate": 400
+   },
+   "name": "steel-chest",
+   "position": [
+    12.5,
+    2.5
+   ]
+  },
+  {
+   "direction": "south",
+   "name": "inserter",
+   "position": [
+    12.5,
+    1.5
+   ]
+  },
+  {
+   "name": "wooden-chest",
+   "position": [
+    18.5,
+    -1.5
+   ]
+  },
+  {
+   "direction": "south",
+   "drop": [
+    3,
+    -1.2
+   ],
+   "name": "fast-inserter",
+   "position": [
+    15.5,
+    -0.5
+   ]
+  },
+  {
+   "direction": "west",
+   "name": "inserter",
+   "position": [
+    22.5,
+    0.5
+   ]
+  },
+  {
+   "name": "steel-chest",
+   "position": [
+    23.5,
+    0.5
+   ]
+  },
+  {
+   "direction": "east",
+   "name": "transport-belt",
+   "position": [
+    0.5,
+    0.5
+   ]
+  },
+  {
+   "direction": "east",
+   "name": "transport-belt",
+   "position": [
+    1.5,
+    0.5
+   ]
+  },
+  {
+   "direction": "east",
+   "name": "transport-belt",
+   "position": [
+    2.5,
+    0.5
+   ]
+  },
+  {
+   "direction": "east",
+   "name": "transport-belt",
+   "position": [
+    3.5,
+    0.5
+   ]
+  },
+  {
+   "direction": "east",
+   "name": "transport-belt",
+   "position": [
+    4.5,
+    0.5
+   ]
+  },
+  {
+   "direction": "east",
+   "name": "transport-belt",
+   "position": [
+    5.5,
+    0.5
+   ]
+  },
+  {
+   "direction": "east",
+   "name": "transport-belt",
+   "position": [
+    6.5,
+    0.5
+   ]
+  },
+  {
+   "direction": "east",
+   "name": "transport-belt",
+   "position": [
+    7.5,
+    0.5
+   ]
+  },
+  {
+   "direction": "east",
+   "name": "transport-belt",
+   "position": [
+    8.5,
+    0.5
+   ]
+  },
+  {
+   "direction": "east",
+   "name": "transport-belt",
+   "position": [
+    9.5,
+    0.5
+   ]
+  },
+  {
+   "direction": "east",
+   "name": "transport-belt",
+   "position": [
+    10.5,
+    0.5
+   ]
+  },
+  {
+   "direction": "east",
+   "name": "transport-belt",
+   "position": [
+    11.5,
+    0.5
+   ]
+  },
+  {
+   "direction": "east",
+   "name": "transport-belt",
+   "position": [
+    12.5,
+    0.5
+   ]
+  },
+  {
+   "direction": "east",
+   "name": "transport-belt",
+   "position": [
+    13.5,
+    0.5
+   ]
+  },
+  {
+   "direction": "east",
+   "name": "transport-belt",
+   "position": [
+    14.5,
+    0.5
+   ]
+  },
+  {
+   "direction": "east",
+   "name": "transport-belt",
+   "position": [
+    15.5,
+    0.5
+   ]
+  },
+  {
+   "direction": "east",
+   "name": "transport-belt",
+   "position": [
+    16.5,
+    0.5
+   ]
+  },
+  {
+   "direction": "east",
+   "name": "transport-belt",
+   "position": [
+    17.5,
+    0.5
+   ]
+  },
+  {
+   "direction": "east",
+   "name": "transport-belt",
+   "position": [
+    18.5,
+    0.5
+   ]
+  },
+  {
+   "direction": "east",
+   "name": "transport-belt",
+   "position": [
+    19.5,
+    0.5
+   ]
+  },
+  {
+   "direction": "east",
+   "name": "transport-belt",
+   "position": [
+    20.5,
+    0.5
+   ]
+  },
+  {
+   "direction": "east",
+   "name": "transport-belt",
+   "position": [
+    21.5,
+    0.5
+   ]
+  }
+ ],
+ "name": "ao3-b",
+ "ticks": 320
+}

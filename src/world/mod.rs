@@ -240,6 +240,8 @@ impl World {
             Target::Ground => true,
             // Сущность, в которую не кладут (другой манипулятор): не берёт ничего.
             Target::None => false,
+            // Рельс: до взятия дело не доходит (манипулятор «ждёт поезд» и спит).
+            Target::Train => false,
         }
     }
 
@@ -412,11 +414,24 @@ impl World {
                         self.released(i);
                     }
                 }
+                // Рельс без вагона: рука доехала с предметом, поезда нет — спит с предметом.
+                Target::Train => self.sleep(i),
                 Target::None => {}
             }
             return;
         }
         // ---- захват ----
+        // Рельс (без вагона) в тайле захвата или выгрузки: ничего не берёт; рука едет в точку
+        // захвата (в эталоне она стоит там), доехала — манипулятор спит. Проверяется раньше
+        // всего прочего, в том числе до взгляда на сундуки (пробы `rl-*`).
+        if pickup == Target::Train || drop == Target::Train {
+            let ins = &mut self.inserters[i];
+            let t = ins.at_pickup;
+            if ins.hand.step(t, rot_speed, ext_speed) {
+                self.sleep(i);
+            }
+            return;
+        }
         if let Target::Chest(dc) = drop {
             if self.chests[dc as usize].inv.is_full(&self.item_stack) {
                 let ins = &mut self.inserters[i];
@@ -529,20 +544,39 @@ impl World {
                 // сущность в тайле); предмет с земли берёт тот, чья середина лежит в тайле точки
                 // захвата, без проверки приёмника (кроме полного сундука выше) — пробы `ng-chain`,
                 // `ngp-*`.
+                //
+                // Из нескольких предметов в тайле цель выбирается один раз — в первый тик
+                // фазы взятия, когда в тайле уже что-то лежит, — и дальше держится: позже
+                // появившийся предмет цель не меняет (пробы `gl-*`, `gs-*`). Выбирается
+                // предмет с наименьшим y, при равном y — с наименьшим x (пробы `gr-*`, `gs-*`,
+                // `sy-*`): ни порядок появления, ни расстояние до точки захвата роли не играют.
+                // Цель хранится в `chase` как упакованная позиция предмета.
+                let tile = |p: (Fx, Fx)| (p.0.div_euclid(TILE), p.1.div_euclid(TILE));
+                let here = tile(self.inserters[i].pickup_point);
+                let pack = |p: (Fx, Fx)| (u64::from(p.0 as u32) << 32) | u64::from(p.1 as u32);
+                if let Some(c) = self.inserters[i].chase {
+                    if !self.ground.iter().any(|g| pack(g.pos) == c) {
+                        self.inserters[i].chase = None; // предмет забрал другой манипулятор
+                    }
+                }
+                if self.inserters[i].chase.is_none() {
+                    let first = self.ground.iter().filter(|g| tile(g.pos) == here).min_by_key(|g| (g.pos.1, g.pos.0));
+                    self.inserters[i].chase = first.map(|g| pack(g.pos));
+                }
                 let ins = &mut self.inserters[i];
-                ins.chase = None;
                 let t = ins.at_pickup;
                 if !ins.hand.step(t, rot_speed, ext_speed) {
                     return;
                 }
-                let tile = |p: (Fx, Fx)| (p.0.div_euclid(TILE), p.1.div_euclid(TILE));
-                let here = tile(self.inserters[i].pickup_point);
-                if let Some(k) = self.ground.iter().position(|g| tile(g.pos) == here) {
-                    let g = self.ground.remove(k);
-                    self.grabbed(i, g.item);
+                if let Some(c) = self.inserters[i].chase {
+                    if let Some(k) = self.ground.iter().position(|g| pack(g.pos) == c) {
+                        let g = self.ground.remove(k);
+                        self.inserters[i].chase = None;
+                        self.grabbed(i, g.item);
+                    }
                 }
             }
-            Target::Ground => {}
+            Target::Ground | Target::Train => {}
         }
     }
 

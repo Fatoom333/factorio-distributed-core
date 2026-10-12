@@ -1,0 +1,32 @@
+{
+ "name": "rl-drop-n",
+ "ticks": 300,
+ "entities": [
+  {
+   "name": "wooden-chest",
+   "position": [
+    2.5,
+    3.5
+   ],
+   "items": {
+    "iron-plate": 5
+   }
+  },
+  {
+   "name": "inserter",
+   "position": [
+    2.5,
+    2.5
+   ],
+   "direction": "north"
+  },
+  {
+   "name": "straight-rail",
+   "position": [
+    3,
+    1
+   ],
+   "direction": "north"
+  }
+ ]
+}

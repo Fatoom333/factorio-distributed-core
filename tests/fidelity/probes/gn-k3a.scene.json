@@ -1,0 +1,65 @@
+{
+ "entities": [
+  {
+   "items": {
+    "iron-plate": 400
+   },
+   "name": "wooden-chest",
+   "position": [
+    2.5,
+    5.5
+   ]
+  },
+  {
+   "direction": "west",
+   "drop": [
+    2.35,
+    0.35
+   ],
+   "name": "fast-inserter",
+   "position": [
+    3.5,
+    5.5
+   ]
+  },
+  {
+   "items": {
+    "copper-plate": 400
+   },
+   "name": "wooden-chest",
+   "position": [
+    11.5,
+    5.5
+   ]
+  },
+  {
+   "direction": "east",
+   "drop": [
+    -5.35,
+    -0.35
+   ],
+   "name": "fast-inserter",
+   "position": [
+    10.5,
+    5.5
+   ]
+  },
+  {
+   "direction": "north",
+   "name": "inserter",
+   "position": [
+    5.5,
+    6.5
+   ]
+  },
+  {
+   "name": "wooden-chest",
+   "position": [
+    5.5,
+    7.5
+   ]
+  }
+ ],
+ "name": "gn-k3a",
+ "ticks": 130
+}

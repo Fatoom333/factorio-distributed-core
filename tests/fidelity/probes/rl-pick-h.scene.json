@@ -1,0 +1,29 @@
+{
+ "name": "rl-pick-h",
+ "ticks": 300,
+ "entities": [
+  {
+   "name": "inserter",
+   "position": [
+    4.5,
+    0.5
+   ],
+   "direction": "west"
+  },
+  {
+   "name": "wooden-chest",
+   "position": [
+    5.5,
+    0.5
+   ]
+  },
+  {
+   "name": "straight-rail",
+   "position": [
+    3,
+    1
+   ],
+   "direction": "east"
+  }
+ ]
+}

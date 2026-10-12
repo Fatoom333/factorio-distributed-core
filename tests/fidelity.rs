@@ -180,6 +180,45 @@ const PROBES: &[&str] = &[
     // (порядок «голова → хвост» расходится с игрой на тиках 210 и 280)
     "ao-order-a",
     "ao-order-b",
+    // M0.5 п. 4: те же два стока ao-order, но в цепочку добавлена третья пара (источник на тайле 12, сток на 15);
+    // в тиках 115 и 185 в одной группе звонят три будильника, порядок пары-спорщиков тот же (подмена «голова → хвост»
+    // расходится на 210 и 280)
+    "ao3-a",
+    "ao3-b",
+    // M0.5 п. 5: два предмета на земле в тайле захвата безисточникового манипулятора. Берётся предмет с наименьшим y,
+    // при равном y — с наименьшим x (gr: восемь диагональных/осевых пар; gs: несимметричные расстояния до точки
+    // захвата и малые разности y; gz: то же в отрицательных координатах); sy: два предмета положены в один тик
+    // идущему вслед манипулятору — порядок появления роли не играет. gl/gm/gn: цель выбирается один раз в первый тик
+    // фазы взятия, позже появившийся предмет её не меняет (граница между 44 и 51 тиком при начале фазы на 49-м)
+    "gr-tl-br-f1",
+    "gr-br-tl-f1",
+    "gr-l-r-f1",
+    "gr-r-l-f1",
+    "gr-t-b-f1",
+    "gr-b-t-f1",
+    "gr-tr-bl-f1",
+    "gr-bl-tr-f1",
+    "gs-d1-f1",
+    "gs-d2-f1",
+    "gs-d3-f1",
+    "gs-d4-f1",
+    "gs-d5-f1",
+    "gs-d6-f1",
+    "gz-d1-f1",
+    "gz-d3-f1",
+    "gz-d5-f1",
+    "sy-il",
+    "sy-ir",
+    "gl-k0",
+    "gl-k1",
+    "gl-k2",
+    "gl-k3",
+    "gl-k4",
+    "gl-k5",
+    "gm-k0a",
+    "gm-k1c",
+    "gn-k3a",
+    "gn-k4c",
     // кастомная точка выгрузки при отрицательной абсолютной координате: игра хранит её с
     // усечением к нулю (drop 1.2 → 308/256 от центра, а не 307/256); набор j, эталон укорочен
     "j-edge-f12-r",
@@ -196,6 +235,19 @@ const PROBES: &[&str] = &[
     "nt-drop-none-i",
     "nt-drop-none-f",
     "nt-drop-none-l",
+    // M0.5 п. 7: рельс без вагона в тайле захвата/выгрузки — манипулятор «ждёт поезд» (rl-far — контроль)
+    "rl-drop-h",
+    "rl-drop-v",
+    "rl-drop-empty",
+    "rl-drop-e",
+    "rl-drop-n",
+    "rl-drop-fast",
+    "rl-drop-long",
+    "rl-pick-h",
+    "rl-pick-v",
+    "rl-pick-long",
+    "rl-far",
+    "rl-two",
     "nt-drop-ins",
     "nt-src-ins",
     "nt-belt-ground",
@@ -425,5 +477,36 @@ fn deterministic_from_scene() {
             b.step();
         }
         assert_eq!(serde_json::to_vec(&a).unwrap(), serde_json::to_vec(&b).unwrap(), "{name}");
+    }
+}
+
+/// Вагон уезжает (мод: сцена с `until`, только в мод-пробах — модель вагонов не считает), пока
+/// манипулятор кладёт в вагон: после тика `at` в тайле выгрузки остаётся рельс без вагона.
+/// Модель: до `at` в тайле выгрузки земля (для снимка без разницы — сундук и рука те же), в
+/// тик `at` цель меняется на `Train`. Эталоны — `tests/fidelity/wagon/` (манипулятор с предметом
+/// в руке доезжает до точки выгрузки и стоит; пустая рука стоит в точке захвата).
+#[test]
+fn train_leaves_while_inserter_holds() {
+    use factorio_distributed_core::world::inserter::Target;
+    let scene = r#"{"name": "rl-leave", "ticks": 220, "entities": [
+        {"name": "wooden-chest", "position": [0.5, 0.5], "items": {"iron-plate": 5}},
+        {"name": "inserter", "position": [1.5, 0.5], "direction": "west"}]}"#;
+    let scene = factorio_distributed_core::world::layout::Scene::from_json(scene).unwrap();
+    for at in [5usize, 20, 36, 105] {
+        let dump = fidelity::load_dump(&dir().join("wagon").join(format!("rl-leave-ul-{at}.dump.jsonl"))).unwrap();
+        let mut w = World::from_scene(&scene, factorio_distributed_core::world::proto::Prototypes::bundled()).unwrap();
+        for (i, want) in dump.iter().enumerate() {
+            if i > 0 {
+                w.step();
+            }
+            if i == at {
+                w.inserters[0].drop = Target::Train;
+            }
+            // снимок тика `at` в игре сделан после ухода вагона, но состояние рук и сундуков от
+            // этого не меняется — сравниваем целиком
+            if let Some(d) = fidelity::diff(want, &w.dump()) {
+                panic!("уход вагона на тике {at}, тик {i}: {d}");
+            }
+        }
     }
 }

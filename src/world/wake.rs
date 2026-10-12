@@ -223,7 +223,7 @@ impl World {
                         return;
                     }
                 }
-                Target::None | Target::Ground => return,
+                Target::None | Target::Ground | Target::Train => return,
             }
         }
         if room {
@@ -240,7 +240,7 @@ impl World {
                     lists[0] = Some(WakeRef::ChestIn(c));
                 }
                 // ждать места на земле нечем: манипулятор не спит и пробует каждый тик
-                Target::None | Target::Ground => return,
+                Target::None | Target::Ground | Target::Train => return,
             }
         }
         if item {
@@ -257,7 +257,7 @@ impl World {
                 Target::Chest(c) => {
                     lists[1] = Some(WakeRef::ChestOut(c));
                 }
-                Target::None | Target::Ground => return,
+                Target::None | Target::Ground | Target::Train => return,
             }
         }
         for r in lists.into_iter().flatten() {

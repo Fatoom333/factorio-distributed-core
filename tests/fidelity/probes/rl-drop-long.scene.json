@@ -1,0 +1,32 @@
+{
+ "name": "rl-drop-long",
+ "ticks": 300,
+ "entities": [
+  {
+   "name": "wooden-chest",
+   "position": [
+    0.5,
+    0.5
+   ],
+   "items": {
+    "iron-plate": 5
+   }
+  },
+  {
+   "name": "long-handed-inserter",
+   "position": [
+    2.5,
+    0.5
+   ],
+   "direction": "west"
+  },
+  {
+   "name": "straight-rail",
+   "position": [
+    5,
+    1
+   ],
+   "direction": "east"
+  }
+ ]
+}

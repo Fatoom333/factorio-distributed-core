@@ -12,7 +12,7 @@ use super::inventory::{Chest, Inventory};
 use super::proto::{BeltProto, InserterProto, Prototypes, TILE_LANE_LEN};
 use super::softfloat::Sf;
 use super::wake::{WakeRef, NONE};
-use super::{BeltTile, Dir, World, GROUND_HALF};
+use super::{BeltTile, Dir, World};
 
 // ---------- сцена ----------
 
@@ -133,6 +133,8 @@ enum Kind {
     Belt(usize),
     Inserter,
     Chest(usize),
+    /// Один из четырёх тайлов прямого рельса 2×2 (без вагона).
+    Rail,
 }
 
 /// Тайл, на котором лежит точка (1/256), — целые координаты тайла.
@@ -227,6 +229,26 @@ pub fn build(scene: &Scene, protos: &Prototypes) -> Result<World, LayoutError> {
             check_range("drop", i, &e.name, v, MAX_VECTOR_TILES)?;
         }
         let pos = (fx_from_f64(e.position[0]), fx_from_f64(e.position[1]));
+        if e.name == "straight-rail" {
+            // Прямой рельс 2×2: центр на границе тайлов, занимает четыре тайла. Вагонов и
+            // поездов в модели нет, поэтому рельс — всегда «без вагона» (манипулятор ждёт поезд).
+            if pos.0.rem_euclid(TILE) != 0 || pos.1.rem_euclid(TILE) != 0 {
+                return err(format!("сущность {i} {}: центр рельса не на границе тайлов", e.name));
+            }
+            if !matches!(e.direction.as_deref(), None | Some("north") | Some("east")) {
+                return err(format!("сущность {i} {}: прямой рельс — только north/east", e.name));
+            }
+            let (cx, cy) = (pos.0.div_euclid(TILE), pos.1.div_euclid(TILE));
+            for t in [(cx - 1, cy - 1), (cx, cy - 1), (cx - 1, cy), (cx, cy)] {
+                if at.insert(t, Kind::Rail).is_some() {
+                    return err(format!("сущность {i}: тайл {t:?} уже занят"));
+                }
+            }
+            continue;
+        }
+        if matches!(e.name.as_str(), "cargo-wagon" | "fluid-wagon" | "artillery-wagon" | "locomotive") {
+            return err(format!("сущность {i}: {} не поддержан моделью: вагоны и поезда не считаются", e.name));
+        }
         if pos.0.rem_euclid(TILE) != TILE / 2 || pos.1.rem_euclid(TILE) != TILE / 2 {
             return err(format!("сущность {i} {}: центр не в середине тайла", e.name));
         }
@@ -402,6 +424,7 @@ pub fn build(scene: &Scene, protos: &Prototypes) -> Result<World, LayoutError> {
         ins.pickup = match at.get(&pick_tile) {
             Some(Kind::Chest(c)) => Target::Chest(*c as u32),
             Some(Kind::Belt(b)) => Target::Belt(*b as u32),
+            Some(Kind::Rail) => Target::Train,
             _ => Target::None,
         };
         // Тайл выгрузки без сущности — земля; другая сущность (манипулятор) не принимает.
@@ -409,32 +432,10 @@ pub fn build(scene: &Scene, protos: &Prototypes) -> Result<World, LayoutError> {
             Some(Kind::Chest(c)) => Target::Chest(*c as u32),
             Some(Kind::Belt(b)) => Target::Belt(*b as u32),
             Some(Kind::Inserter) => Target::None,
+            Some(Kind::Rail) => Target::Train,
             None => Target::Ground,
         };
     }
-    // Манипулятор без источника берёт предмет с земли в своём тайле захвата. Если в таком тайле
-    // могут лежать сразу два предмета (точки выгрузки дальше `2 · GROUND_HALF` по какой-то оси),
-    // какой он возьмёт первым — не проверено: модель такую сцену не считает.
-    let mut picked: Vec<(i32, i32)> = Vec::new();
-    for ins in inserters.iter().filter(|i| i.pickup == Target::None) {
-        picked.push(tile_of(ins.pickup_point.0, ins.pickup_point.1));
-    }
-    if !picked.is_empty() {
-        let mut dropped: HashMap<(i32, i32), Vec<(Fx, Fx)>> = HashMap::new();
-        for ins in inserters.iter().filter(|i| i.drop == Target::Ground) {
-            let t = tile_of(ins.drop_point.0, ins.drop_point.1);
-            if picked.contains(&t) {
-                dropped.entry(t).or_default().push(ins.drop_point);
-            }
-        }
-        let far = |a: (Fx, Fx), b: (Fx, Fx)| (a.0 - b.0).abs() > 2 * GROUND_HALF || (a.1 - b.1).abs() > 2 * GROUND_HALF;
-        for (t, pts) in &dropped {
-            if pts.iter().enumerate().any(|(k, &a)| pts[k + 1..].iter().any(|&b| far(a, b))) {
-                return err(format!("тайл {t:?}: на землю в тайле захвата без источника могут лечь два предмета — не M0.5"));
-            }
-        }
-    }
-
     let mut world = World {
         tick: 0,
         next_uid: 0,
@@ -625,8 +626,26 @@ mod tests {
         assert!(!w.remerges.is_empty());
     }
 
-    /// Земля: тайл без сущности — цель `Ground`, тайл с манипулятором — `None`; два предмета,
-    /// которые могут лечь в тайл захвата безисточникового манипулятора, — отказ.
+    /// Рельс 2×2: любой из четырёх тайлов — цель `Train`; вагоны и поезда — отказ; рельс и
+    /// сущность в одном тайле — отказ.
+    #[test]
+    fn rail_targets() {
+        let ins = |x: f64, d: &str| serde_json::json!({"name": "inserter", "position": [x, 0.5], "direction": d});
+        let rail = serde_json::json!({"name": "straight-rail", "position": [3.0, 1.0], "direction": "east"});
+        // выгрузка (2.7, 0.5) — тайл (2, 0) рельса; захват (3.5, 0.5) — тайл (3, 0) рельса
+        let w = build(&scene(serde_json::json!([ins(1.5, "west"), ins(4.5, "west"), rail])), Prototypes::bundled()).unwrap();
+        assert_eq!((w.inserters[0].pickup, w.inserters[0].drop), (Target::None, Target::Train));
+        assert_eq!(w.inserters[1].pickup, Target::Train);
+        let wagon = serde_json::json!({"name": "cargo-wagon", "position": [3.0, 1.0]});
+        assert!(build(&scene(serde_json::json!([wagon])), Prototypes::bundled()).is_err());
+        let chest = serde_json::json!({"name": "wooden-chest", "position": [2.5, 0.5]});
+        assert!(build(&scene(serde_json::json!([chest, rail])), Prototypes::bundled()).is_err());
+        let off = serde_json::json!({"name": "straight-rail", "position": [3.5, 1.0]});
+        assert!(build(&scene(serde_json::json!([off])), Prototypes::bundled()).is_err());
+    }
+
+    /// Земля: тайл без сущности — цель `Ground`, тайл с манипулятором — `None`; несколько
+    /// предметов в тайле захвата безисточникового манипулятора — не отказ (выбор — в `World::step`).
     #[test]
     fn ground_targets() {
         let a = serde_json::json!({"name": "inserter", "position": [0.5, 0.5], "direction": "west"});
@@ -638,9 +657,9 @@ mod tests {
         let dead = serde_json::json!({"name": "inserter", "position": [1.5, 0.5], "direction": "north"});
         let w = build(&scene(serde_json::json!([a, dead])), Prototypes::bundled()).unwrap();
         assert_eq!(w.inserters[0].drop, Target::None);
-        // второй источник на ту же землю: рядом (мешает первому) — можно, далеко — отказ
+        // второй источник на ту же землю: и рядом (мешает первому), и далеко — сцена строится
         assert!(build(&scene(serde_json::json!([a, b, c(-2.0 + 70.0 / 256.0)])), Prototypes::bundled()).is_ok());
-        assert!(build(&scene(serde_json::json!([a, b, c(-2.0 + 71.0 / 256.0)])), Prototypes::bundled()).is_err());
+        assert!(build(&scene(serde_json::json!([a, b, c(-2.0 + 71.0 / 256.0)])), Prototypes::bundled()).is_ok());
     }
 
     #[test]
