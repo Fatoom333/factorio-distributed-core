@@ -13,6 +13,11 @@
 //!   `gap` у предмета — до следующего сзади, `bg` — от последнего предмета до заднего конца.
 //!   Позиция предмета — расстояние до **переднего** конца линии (куда едут предметы), 1/256 тайла.
 //!
+//! - Поворот — обычный тайл своей линии с длинами полос 106 / 295; кольцо — линия, выход которой
+//!   она сама; боковая загрузка — выход линии вбок, в точку линии приёмника (`Line::side`),
+//!   вставка как у манипулятора, сильная отметка (docs/mechanics/belts.md, «Повороты, кольца,
+//!   боковая загрузка»).
+//!
 //! Полоса 0 — левая по ходу ленты (`get_transport_line(1)`), полоса 1 — правая.
 
 use serde::Serialize;
@@ -25,12 +30,16 @@ use super::World;
 /// Индекс предмета в таблице имён мира.
 pub type ItemId = u16;
 
-/// Запас длины новой линии при нарезке: 200 тайлов (линия не бывает длиннее). Допущение модели,
-/// пробами не проверено (сцены M0 короче).
+/// Запас длины новой линии при нарезке: 200 прямых тайлов, то есть 51200 единиц длины полос
+/// (с поворотами полосы одной ленты режутся на разных тайлах). Проверено пробами `lim-*`.
 pub const LINE_BUDGET: Fx = 200 * TILE_LANE_LEN;
-/// Запас после тайла, с которым работал манипулятор: 3 тайла плюс половина длины этого тайла.
-/// Для прямых лент это «тайл с отметкой и ещё два ниже по течению» (пробы перезапуска очереди).
+/// Запас после тайла со слабой отметкой (манипулятор): 3 тайла плюс половина длины полосы этого
+/// тайла. Для прямых лент это «тайл с отметкой и ещё два ниже по течению» (пробы перезапуска
+/// очереди).
 pub const TOUCHED_BUDGET: Fx = 3 * TILE_LANE_LEN;
+/// То же для сильной отметки (боковая загрузка): 2 тайла плюс половина полосы — граница через
+/// один тайл ниже по течению.
+pub const STRONG_TOUCHED_BUDGET: Fx = 2 * TILE_LANE_LEN;
 /// Перенарезка откладывается на `hash mod 600` тиков от первого взаимодействия
 /// (пробы `cal-*`: граница с точностью до тика).
 pub const REMERGE_SPREAD: u32 = 600;
@@ -58,9 +67,20 @@ pub struct TileLane {
     pub line: u32,
     /// Начало тайла на линии (расстояние от переднего конца линии до переднего края тайла).
     pub start: Fx,
-    /// Тик последнего взаимодействия манипулятора с этой полосой тайла (`None` — не было или
-    /// выдохлось).
+    /// Длина полосы тайла: 256 у прямой, у поворота 106 (внутренняя) и 295 (внешняя).
+    pub len: Fx,
+    /// Тик последнего взаимодействия с этой полосой тайла (`None` — не было или выдохлось).
     pub touched: Option<i64>,
+    /// Отметка «сильная» (боковая загрузка в этот тайл); у манипулятора — слабая.
+    pub strong: bool,
+}
+
+/// Боковой выход линии: в полосу `lane` тайла ленты `belt`, в точку `off` от переднего края тайла.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize)]
+pub struct SideOut {
+    pub belt: u32,
+    pub lane: u8,
+    pub off: Fx,
 }
 
 /// Транспортная линия: кусок одной полосы цепочки лент, обновляется как целое.
@@ -88,9 +108,15 @@ pub struct Line {
     pub gi: i32,
     /// Индекс первого предмета с зазором меньше 64 за ним (−1 — нет): переуплотнённая пара.
     pub fsq: i32,
-    /// Линия ниже по течению (куда выезжают предметы) и линия, впадающая сзади.
+    /// Линия ниже по течению (куда выезжают предметы; при выходе вбок — линия приёмника) и
+    /// линия, впадающая сзади (только прямой вход).
     pub out: Option<u32>,
     pub inp: Option<u32>,
+    /// Выход вбок (боковая загрузка); `None` — выход прямой.
+    pub side: Option<SideOut>,
+    /// Боковые входы (линии, у которых `out` — эта линия и выход вбок), по возрастанию
+    /// `(номер постройки переднего тайла входа, полоса)`.
+    pub sides: Vec<u32>,
     /// Стоит ли в списке активных своей группы.
     pub active: bool,
     /// Тик последнего обновления (защита от двойного обновления за тик).
@@ -173,6 +199,8 @@ impl Line {
             fsq: -1,
             out: None,
             inp: None,
+            side: None,
+            sides: Vec::new(),
             active: false,
             last_tick: None,
             pick: Vec::new(),
@@ -679,21 +707,25 @@ impl World {
             cur = o;
         }
         for &l in chain.iter().rev() {
-            self.finish_line(l);
+            self.finish_line(l, now);
         }
         chain.clear();
         self.chain_scratch = chain;
     }
 
     /// Ход линии `li` в её обновлении (линия ниже по течению уже обновлена, если была активна).
-    fn finish_line(&mut self, li: u32) {
-        if self.move_line(li) {
+    fn finish_line(&mut self, li: u32, now: i64) {
+        if self.move_line(li, now) {
             if let Some(i) = self.lines[li as usize].inp {
                 self.activate_back(i);
             }
-            // линия сдвинулась: будит ждущих места (если место есть) и ждущих предмета — отложенно
-            if !self.lines[li as usize].drop.is_empty() && self.line_has_room(li) {
-                self.defer_alarm(li, WakeRef::Drop(li));
+            // линия сдвинулась: если на ней есть место — будит ждущих места (отложенно) и боковые
+            // входы; ждущих предмета — отложенно
+            if self.line_has_room(li) {
+                if !self.lines[li as usize].drop.is_empty() {
+                    self.defer_alarm(li, WakeRef::Drop(li));
+                }
+                self.activate_sides(li);
             }
             if !self.lines[li as usize].pick.is_empty() {
                 self.defer_alarm(li, WakeRef::Pick(li));
@@ -711,7 +743,7 @@ impl World {
     /// 2. Первый предмет у переднего конца — переезд в линию ниже по течению (не больше одного
     ///    за тик при ходе до 64); остаток хода пересчитывается по скоростям.
     /// 3. Перед упёрт — закрывается первый зазор больше 64: всё, что за ним, подъезжает.
-    fn move_line(&mut self, li: u32) -> bool {
+    fn move_line(&mut self, li: u32, now: i64) -> bool {
         let li = li as usize;
         if self.lines[li].items.is_empty() {
             return false;
@@ -719,11 +751,14 @@ impl World {
         let dist = self.lines[li].speed;
         let mut rem = dist;
         let out = self.lines[li].out;
+        let side = self.lines[li].side;
         let mut can_out = out.is_some_and(|o| self.lines[o as usize].speed != 0);
         while rem > 0 {
             let fg = self.lines[li].fg;
             let mut m = rem.min(fg);
-            if let Some(o) = out {
+            // ограничение хвостом линии ниже по течению — только при прямом выходе (у кольца из
+            // одной линии это её собственный хвост); при выходе вбок предмет доезжает до края
+            if let (Some(o), None) = (out, side) {
                 let ol = &self.lines[o as usize];
                 if !ol.items.is_empty() {
                     m = m.min(fg - ITEM_SPACING + ol.bg);
@@ -746,7 +781,25 @@ impl World {
                 let more = rem > ITEM_SPACING;
                 let adv = transfer_advance(self.lines[li].speed, self.lines[o as usize].speed, rem);
                 let (item, uid) = (self.lines[li].items[0].item, self.lines[li].items[0].uid);
-                if self.lines[o as usize].insert_at_back(adv, item, uid) {
+                let ok = match side {
+                    None => self.lines[o as usize].insert_at_back(adv, item, uid),
+                    Some(sd) => {
+                        // Боковая загрузка: вставка как у манипулятора — в точку `side_pos` линии
+                        // приёмника, ход — остаток (0 — ход приёмника); удачная вставка ставит
+                        // сильную отметку на тайл приёмника.
+                        let pos = self.belts[sd.belt as usize].lanes[sd.lane as usize].start + sd.off;
+                        let ol = &self.lines[o as usize];
+                        let adv = if adv == 0 { ol.speed } else { adv };
+                        let out_bg = ol.out.map(|x| self.lines[x as usize].bg);
+                        let inp_fg = ol.inp.map(|x| self.lines[x as usize].fg);
+                        let ok = self.lines[o as usize].try_insert(pos, adv, out_bg, inp_fg, item, uid);
+                        if ok {
+                            self.touch(sd.belt as usize, sd.lane as usize, now, true);
+                        }
+                        ok
+                    }
+                };
+                if ok {
                     self.activate_front(o);
                     // на линию въехал предмет: будит ждущих на ней предмета — отложенно
                     if !self.lines[o as usize].pick.is_empty() {
@@ -757,6 +810,7 @@ impl World {
                         l.clear();
                         return true;
                     }
+                    // у кольца из одной линии предмет уже дописан в её хвост; снимается передний
                     l.fg += l.items[0].gap;
                     l.items.remove(0);
                     if l.gi == 0 {
@@ -796,7 +850,7 @@ impl World {
     /// Кладка манипулятором на полосу `lane` тайла `b` в точку `in_tile` (0..=255 от переднего
     /// края тайла). Попытка (и неудачная тоже) отмечает взаимодействие с тайлом.
     pub fn belt_insert(&mut self, b: usize, lane: usize, in_tile: Fx, item: ItemId, uid: u64, now: i64) -> bool {
-        self.touch(b, lane, now);
+        self.touch(b, lane, now, false);
         let tl = &self.belts[b].lanes[lane];
         let (li, pos) = (tl.line, tl.start + in_tile);
         let l = &self.lines[li as usize];
@@ -822,27 +876,65 @@ impl World {
         }
         if self.line_has_room(li) {
             self.alarm(WakeRef::Drop(li));
+            self.activate_sides(li);
         }
         it
     }
 
-    /// Отметка взаимодействия манипулятора с полосой тайла. Первая отметка на тайле ставит
-    /// заявку на перенарезку цепочки.
-    pub fn touch(&mut self, b: usize, lane: usize, now: i64) {
-        if self.belts[b].lanes[lane].touched.is_none() {
-            let li = self.belts[b].lanes[lane].line;
+    /// Боковые входы линии `li` — в конец списка активных, в порядке списка входов (если не
+    /// пусты и не активны): на линии появилось место, загружающие в неё сбоку снова пробуют.
+    fn activate_sides(&mut self, li: u32) {
+        for k in 0..self.lines[li as usize].sides.len() {
+            let x = self.lines[li as usize].sides[k];
+            self.activate_back(x);
+        }
+    }
+
+    /// Отметка взаимодействия с полосой тайла: манипулятор — слабая, боковая загрузка —
+    /// сильная. Первая отметка на тайле (или первая сильная поверх слабой) ставит заявку на
+    /// перенарезку цепочки.
+    pub fn touch(&mut self, b: usize, lane: usize, now: i64, strong: bool) {
+        let tl = &self.belts[b].lanes[lane];
+        if tl.touched.is_none() || (strong && !tl.strong) {
+            let li = tl.line;
             self.schedule_remerge(li, now);
         }
-        self.belts[b].lanes[lane].touched = Some(now);
+        let tl = &mut self.belts[b].lanes[lane];
+        tl.touched = Some(now);
+        tl.strong |= strong;
     }
 
     // ---------- перенарезка ----------
 
-    fn chain_head(&self, mut li: u32) -> u32 {
-        while let Some(o) = self.lines[li as usize].out {
-            li = o;
+    /// Голова цепочки: идём ниже по течению, пока выход прямой; линия с выходом вбок — голова
+    /// своей цепочки. Кольцо (обход вернулся к `li`) — голова с наименьшим ключом
+    /// [`World::line_key`].
+    pub(super) fn chain_head(&self, li: u32) -> u32 {
+        let mut cur = li;
+        loop {
+            let l = &self.lines[cur as usize];
+            match (l.out, l.side) {
+                (Some(o), None) if o == li => break,
+                (Some(o), None) => cur = o,
+                _ => return cur,
+            }
         }
-        li
+        let (mut best, mut key) = (li, self.line_key(li));
+        let mut cur = self.lines[li as usize].out.expect("кольцо");
+        while cur != li {
+            let k = self.line_key(cur);
+            if k < key {
+                (best, key) = (cur, k);
+            }
+            cur = self.lines[cur as usize].out.expect("кольцо");
+        }
+        best
+    }
+
+    /// Ключ линии: номер постройки её переднего тайла и полоса.
+    pub(super) fn line_key(&self, li: u32) -> (u32, u8) {
+        let l = &self.lines[li as usize];
+        (self.belts[l.tiles[0] as usize].unit, l.lane)
     }
 
     fn chain_hash(&self, head: u32) -> u32 {
@@ -926,12 +1018,14 @@ impl World {
                         fresh = true;
                     } else {
                         tl.touched = None;
+                        tl.strong = false;
                         decayed = true;
                     }
                 }
                 tiles.push(b);
             }
-            cur = self.lines[li as usize].inp;
+            // у кольца обход идёт до возврата к голове
+            cur = self.lines[li as usize].inp.filter(|&i| i != head);
         }
         if decay_only && !decayed {
             if fresh {
@@ -946,15 +1040,17 @@ impl World {
             let tl = &self.belts[b as usize].lanes[lane];
             let li = tl.line;
             let back_of_line = self.lines[li as usize].tiles.last() == Some(&b);
-            if segs.is_empty() || TILE_LANE_LEN > budget || (back_of_line && !self.can_merge_input(li)) {
+            let len = tl.len;
+            if segs.is_empty() || len > budget || (back_of_line && !self.can_merge_input(li)) {
                 segs.push((b, b));
                 budget = LINE_BUDGET;
             }
             if tl.touched.is_some() {
-                budget = budget.min(TOUCHED_BUDGET + TILE_LANE_LEN / 2);
+                let mark = if tl.strong { STRONG_TOUCHED_BUDGET } else { TOUCHED_BUDGET };
+                budget = budget.min(mark + (len >> 1));
             }
             segs.last_mut().expect("сегмент начат").1 = b;
-            budget -= TILE_LANE_LEN;
+            budget -= len;
         }
         // разрезы: по верхнему краю каждого сегмента
         for &(first, _) in &segs {
@@ -1063,9 +1159,23 @@ impl World {
             tl.line = ni;
             tl.start -= cut;
         }
+        // боковые входы в отрезанные тайлы переходят к новой линии (порядок списка сохраняется)
+        let sides = std::mem::take(&mut self.lines[s as usize].sides);
+        let (go, stay): (Vec<u32>, Vec<u32>) = sides.into_iter().partition(|&x| {
+            let sd = self.lines[x as usize].side.expect("боковой вход");
+            self.belts[sd.belt as usize].lanes[sd.lane as usize].line == ni
+        });
+        for &x in &go {
+            self.lines[x as usize].out = Some(ni);
+        }
+        self.lines[s as usize].sides = stay;
+        self.lines[ni as usize].sides = go;
         self.activate_back(ni);
         if let Some(i) = n_inp {
             self.activate_back(i);
+        }
+        if self.line_has_room(ni) {
+            self.activate_sides(ni);
         }
         // Спящие старой линии переписываются на линии своих тайлов (не просыпаются): сначала
         // ждущие места, потом ждущие предмета, каждый список — в своём порядке.
@@ -1146,6 +1256,16 @@ impl World {
         debug_assert!(sl.caches_ok());
         if let Some(u) = il.inp {
             self.lines[u as usize].out = Some(s);
+        }
+        // боковые входы поглощённой — к поглотившей (их точки сдвигаются вместе с тайлами)
+        if !il.sides.is_empty() {
+            for &x in &il.sides {
+                self.lines[x as usize].out = Some(s);
+            }
+            let mut sides = std::mem::take(&mut self.lines[s as usize].sides);
+            sides.extend_from_slice(&il.sides);
+            sides.sort_by_key(|&x| self.line_key(x));
+            self.lines[s as usize].sides = sides;
         }
         self.activate_back(s);
         true

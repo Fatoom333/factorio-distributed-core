@@ -89,13 +89,24 @@ pub struct BeltTile {
     pub dir: Dir,
     /// Индекс в `World::belt_protos`.
     pub proto: u8,
-    /// Полосы тайла (0 — левая, 1 — правая): линия, место на ней, отметка взаимодействия.
+    /// Форма: 0 — прямая, 1 — поворот налево (вход слева), 2 — поворот направо (вход справа).
+    pub shape: u8,
+    /// Порядковый номер постройки (аналог `unit_number`): ключ порядка входов линии и головы кольца.
+    pub unit: u32,
+    /// Полосы тайла (0 — левая, 1 — правая): линия, место на ней, длина, отметка взаимодействия.
     pub lanes: [TileLane; 2],
 }
 
 impl BeltTile {
     /// Мировая позиция предмета на полосе `lane` с `p` (до края тайла по ходу).
     pub fn item_pos(&self, lane: usize, p: Fx) -> (Fx, Fx) {
+        if self.shape != 0 {
+            let left = self.shape == 1;
+            let outer = (lane == 1) == left;
+            let (x, y) = fixed::turn_arc_offset(p as i64, self.lanes[lane].len as i64, outer, left);
+            let (wx, wy) = self.dir.rotate((x as Fx, y as Fx));
+            return (self.pos.0 + wx, self.pos.1 + wy);
+        }
         let (ux, uy) = self.dir.unit();
         let (rx, ry) = self.dir.right();
         let along = TILE / 2 - p;
@@ -116,6 +127,16 @@ impl BeltTile {
         let (rx, ry) = self.dir.right();
         let along = rel.0 * ux + rel.1 * uy;
         let lateral = rel.0 * rx + rel.1 * ry;
+        if self.shape != 0 {
+            // Поворот: полоса — по расстоянию от внутреннего угла тайла (передний-левый у поворота
+            // налево, передний-правый у поворота направо): ближе 0.5 по квадрату (радиус ≈ 0.707) —
+            // внутренняя, иначе внешняя. Место — середина полосы, от точки не зависит.
+            let cx = if self.shape == 1 { -TILE / 2 } else { TILE / 2 };
+            let (dx, dy) = ((lateral - cx) as i64, (-along + TILE / 2) as i64);
+            let inner = dx * dx + dy * dy < (TILE as i64 * TILE as i64) / 2;
+            let lane = if inner == (self.shape == 1) { 0 } else { 1 };
+            return (lane, self.lanes[lane].len >> 1);
+        }
         let lane = if lateral < 0 { 0 } else { 1 };
         (lane, (TILE / 2 - along).clamp(0, TILE_LANE_LEN - 1))
     }
@@ -249,7 +270,7 @@ impl World {
     /// линии конец открыт: предмет, отодвинутый за задний конец линии, числится на нём.
     pub fn lane_span(&self, b: usize, lane: usize) -> (u32, Fx, Fx) {
         let tl = &self.belts[b].lanes[lane];
-        let hi = tl.start + TILE_LANE_LEN;
+        let hi = tl.start + tl.len;
         let hi = if hi >= self.lines[tl.line as usize].len { Fx::MAX } else { hi };
         (tl.line, tl.start, hi)
     }
@@ -275,6 +296,10 @@ impl World {
     /// (docs/mechanics/inserters.md, «Порядок полос»).
     pub fn pick_lanes(&self, i: usize, b: usize) -> [usize; 2] {
         let (ins, tile) = (&self.inserters[i], &self.belts[b]);
+        // на повороте — всегда левая, потом правая
+        if tile.shape != 0 {
+            return [0, 1];
+        }
         let dx = (tile.pos.0 - ins.pos.0) as i64;
         let dy = (tile.pos.1 - ins.pos.1) as i64;
         // направление в 1/16 оборота, округление к ближайшему (угол — на сетке float)
@@ -503,7 +528,7 @@ impl World {
                     // него зависит порядок заявок на перенарезку двух полос в одном тике.
                     for lane in self.pick_lanes(i, b) {
                         if seen[lane] {
-                            self.touch(b, lane, now);
+                            self.touch(b, lane, now, false);
                         }
                     }
                 }

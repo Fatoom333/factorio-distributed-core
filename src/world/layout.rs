@@ -5,11 +5,13 @@ use std::collections::{BTreeMap, HashMap};
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use super::belt::{ItemId, Line, LineGroup, TileLane};
+use super::belt::{ItemId, Line, LineGroup, SideOut, TileLane};
 use super::fixed::{fx_from_f64, hypot_f64, orientation_f32, Fx, TILE};
 use super::inserter::{Hand, HandTarget, Inserter, Target};
 use super::inventory::{Chest, Inventory};
-use super::proto::{BeltProto, InserterProto, Prototypes, TILE_LANE_LEN};
+use super::proto::{
+    BeltProto, InserterProto, Prototypes, SIDE_FAR, SIDE_NEAR, TILE_LANE_LEN, TURN_INNER_LEN, TURN_OUTER_LEN,
+};
 use super::softfloat::Sf;
 use super::wake::{WakeRef, NONE};
 use super::{BeltTile, Dir, World};
@@ -137,6 +139,14 @@ enum Kind {
     Rail,
 }
 
+/// Куда выходит лента: прямо в ленту `0` (то же направление или поворот, который она питает) или
+/// вбок — в полосу `lane` прямой ленты `to`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum BeltLink {
+    Direct(usize),
+    Side { to: usize, lane: u8 },
+}
+
 /// Тайл, на котором лежит точка (1/256), — целые координаты тайла.
 fn tile_of(x: Fx, y: Fx) -> (i32, i32) {
     (x.div_euclid(TILE), y.div_euclid(TILE))
@@ -261,10 +271,11 @@ pub fn build(scene: &Scene, protos: &Prototypes) -> Result<World, LayoutError> {
         };
         let kind = if let Some(bp) = protos.belts.get(&e.name) {
             let proto = proto_index(&mut belt_protos, bp);
-            let lane = |line: u32| TileLane { line, start: 0, touched: None };
+            let lane = |line: u32| TileLane { line, start: 0, len: TILE_LANE_LEN, touched: None, strong: false };
             let b = u32::try_from(belts.len()).ok().and_then(|b| b.checked_mul(2)).ok_or_else(|| LayoutError("слишком много лент".into()))?;
-            // каждая лента сначала — своя линия на каждую полосу (как сразу после постройки)
-            belts.push(BeltTile { pos, dir, proto, lanes: [lane(b), lane(b + 1)] });
+            // каждая лента сначала — своя линия на каждую полосу (как сразу после постройки);
+            // форма и длины полос — ниже, когда известны соседи
+            belts.push(BeltTile { pos, dir, proto, shape: 0, unit: i as u32, lanes: [lane(b), lane(b + 1)] });
             built.push(i);
             Kind::Belt(belts.len() - 1)
         } else if let Some(ip) = protos.inserters.get(&e.name) {
@@ -364,58 +375,97 @@ pub fn build(scene: &Scene, protos: &Prototypes) -> Result<World, LayoutError> {
         let (dx, dy) = b.dir.unit();
         (tx + dx, ty + dy)
     };
-    // Проверка: повороты и боковая загрузка в M0 не поддержаны.
-    for (i, b) in belts.iter().enumerate() {
-        if let Some(f) = belt_at(front_of(b)) {
-            let fd = belts[f].dir;
-            if fd != b.dir && fd != b.dir.opposite() {
-                return err(format!(
-                    "лента {:?} упирается в бок ленты {:?}: поворот/боковая загрузка — не M0",
-                    belts[i].pos, belts[f].pos
-                ));
-            }
-        }
-    }
-    // next[i] — лента впереди с тем же направлением (продолжение цепочки); prev — обратное.
-    let next: Vec<Option<usize>> = belts
+    let add = |t: (i32, i32), v: (i32, i32)| (t.0 + v.0, t.1 + v.1);
+    // Форма ленты (выведено из наблюдений, docs/mechanics/belts.md, «Повороты»): лента «питает»
+    // соседа, если смотрит в него. Питает сзади — прямая; иначе питает ровно один бок — поворот
+    // (вход слева — налево, справа — направо); оба бока или никто — прямая.
+    let feeds_into = |from: (i32, i32), to: (i32, i32)| -> bool {
+        belt_at(from).is_some_and(|x| add(from, belts[x].dir.unit()) == to)
+    };
+    let shapes: Vec<u8> = belts
         .iter()
-        .map(|b| belt_at(front_of(b)).filter(|&f| belts[f].dir == b.dir))
+        .map(|bt| {
+            let (d, t) = (bt.dir, tile_of(bt.pos.0, bt.pos.1));
+            let (ux, uy) = d.unit();
+            let (rx, ry) = d.right();
+            let back = feeds_into((t.0 - ux, t.1 - uy), t);
+            let left = feeds_into((t.0 - rx, t.1 - ry), t);
+            let right = feeds_into((t.0 + rx, t.1 + ry), t);
+            if back || left == right {
+                0
+            } else if left {
+                1
+            } else {
+                2
+            }
+        })
         .collect();
-    let mut prev: Vec<Option<usize>> = vec![None; belts.len()];
-    for (i, n) in next.iter().enumerate() {
-        if let Some(n) = *n {
-            prev[n] = Some(i);
+    for (b, &shape) in shapes.iter().enumerate() {
+        let lens = match shape {
+            1 => [TURN_INNER_LEN, TURN_OUTER_LEN],
+            2 => [TURN_OUTER_LEN, TURN_INNER_LEN],
+            _ => [TILE_LANE_LEN, TILE_LANE_LEN],
+        };
+        belts[b].shape = shape;
+        for (tl, len) in belts[b].lanes.iter_mut().zip(lens) {
+            tl.len = len;
         }
     }
-    // Цепочки: от последней по ходу ленты назад. Полоса цепочки — группа линий.
-    let mut group_of: Vec<Option<u32>> = vec![None; belts.len()];
-    let mut heads: Vec<usize> = Vec::new();
-    for (head, n) in next.iter().enumerate() {
-        if n.is_some() {
-            continue;
+    // Выход каждой ленты: прямой (в ленту того же направления или в поворот, который она питает),
+    // вбок (в бок прямой ленты) или никуда (лента впереди смотрит навстречу или её нет).
+    let links: Vec<Option<BeltLink>> = belts
+        .iter()
+        .map(|b| {
+            let f = belt_at(front_of(b))?;
+            let fd = belts[f].dir;
+            if fd == b.dir.opposite() {
+                None
+            } else if fd == b.dir || belts[f].shape != 0 {
+                Some(BeltLink::Direct(f))
+            } else {
+                // источник слева от приёмника — в его левую полосу, справа — в правую
+                let (rx, ry) = fd.right();
+                let ft = tile_of(belts[f].pos.0, belts[f].pos.1);
+                let on_left = tile_of(b.pos.0, b.pos.1) == (ft.0 - rx, ft.1 - ry);
+                Some(BeltLink::Side { to: f, lane: if on_left { 0 } else { 1 } })
+            }
+        })
+        .collect();
+    // Группы линий: связные куски графа «полоса тайла — полоса тайла» по прямым и боковым
+    // соединениям (боковое соединение сливает группы источника и приёмника).
+    let mut parent: Vec<usize> = (0..belts.len() * 2).collect();
+    fn root(p: &mut [usize], mut x: usize) -> usize {
+        while p[x] != x {
+            p[x] = p[p[x]];
+            x = p[x];
         }
-        let g = (heads.len() * 2) as u32;
-        heads.push(head);
-        let mut cur = Some(head);
-        while let Some(c) = cur {
-            group_of[c] = Some(g);
-            cur = prev[c];
+        x
+    }
+    for (b, l) in links.iter().enumerate() {
+        for lane in 0..2 {
+            let to = match *l {
+                Some(BeltLink::Direct(f)) => f * 2 + lane,
+                Some(BeltLink::Side { to, lane: tl }) => to * 2 + tl as usize,
+                None => continue,
+            };
+            let (x, y) = (root(&mut parent, b * 2 + lane), root(&mut parent, to));
+            parent[x] = y;
         }
     }
-    // Кольцо лент (цепочка без последней ленты) — не M0.
-    if group_of.iter().any(|g| g.is_none()) {
-        return err("замкнутое кольцо лент — не M0".into());
-    }
+    let mut group_id: HashMap<usize, u32> = HashMap::new();
     let mut lines: Vec<Line> = Vec::with_capacity(belts.len() * 2);
     for (b, tile) in belts.iter().enumerate() {
         let speed = belt_protos[tile.proto as usize].speed;
-        let g = group_of[b].expect("проверено выше");
         for lane in 0..2u8 {
-            let mut l = Line::new(lane, g + lane as u32, speed, TILE_LANE_LEN);
+            let r = root(&mut parent, b * 2 + lane as usize);
+            let next_id = group_id.len() as u32;
+            let g = *group_id.entry(r).or_insert(next_id);
+            let mut l = Line::new(lane, g, speed, tile.lanes[lane as usize].len);
             l.tiles.push(b as u32);
             lines.push(l);
         }
     }
+    let n_groups = group_id.len();
 
     // ---- цели манипуляторов ----
     for ins in inserters.iter_mut() {
@@ -446,7 +496,7 @@ pub fn build(scene: &Scene, protos: &Prototypes) -> Result<World, LayoutError> {
         belts,
         lines,
         free_lines: Vec::new(),
-        line_groups: vec![LineGroup::default(); heads.len() * 2],
+        line_groups: vec![LineGroup::default(); n_groups],
         active_groups: Vec::new(),
         line_alarms: Vec::new(),
         group_scratch: Vec::new(),
@@ -459,7 +509,7 @@ pub fn build(scene: &Scene, protos: &Prototypes) -> Result<World, LayoutError> {
         chests,
         ground: Vec::new(),
     };
-    settle(&mut world, &next, &built, scene.warmup);
+    settle(&mut world, &links, &built, scene.warmup);
     Ok(world)
 }
 
@@ -483,9 +533,9 @@ pub const WARMUP_SETTLED: u64 = 1024;
 ///
 /// Отсюда начальный порядок манипуляторов (проверено по эталону: пробы `t1*`, `c1*`, `c3*`,
 /// `ins-warm-*`; docs/mechanics/inserters.md, «Начальный порядок»).
-fn settle(world: &mut World, next: &[Option<usize>], built: &[usize], warmup: Option<u64>) {
+fn settle(world: &mut World, links: &[Option<BeltLink>], built: &[usize], warmup: Option<u64>) {
     let w = warmup.unwrap_or(WARMUP_SETTLED).min(WARMUP_SETTLED) as i64;
-    connect_belts(world, next, built, -w);
+    connect_belts(world, links, built, -w);
     for i in 0..world.inserters.len() {
         world.wake(i);
     }
@@ -524,31 +574,55 @@ fn settle(world: &mut World, next: &[Option<usize>], built: &[usize], warmup: Op
 ///
 /// Все сущности сцены строятся в одном тике, по порядку сцены. Заявки исполняет прогрев
 /// ([`settle`]).
-fn connect_belts(world: &mut World, next: &[Option<usize>], built: &[usize], start: i64) {
-    let link = |world: &mut World, up: usize, down: usize| {
+fn connect_belts(world: &mut World, links: &[Option<BeltLink>], built: &[usize], start: i64) {
+    let link = |world: &mut World, up: usize, to: BeltLink| {
         for lane in 0..2 {
-            let (u, d) = ((up * 2 + lane) as u32, (down * 2 + lane) as u32);
-            world.lines[u as usize].out = Some(d);
-            world.lines[d as usize].inp = Some(u);
+            let u = (up * 2 + lane) as u32;
+            match to {
+                BeltLink::Direct(down) => {
+                    let d = (down * 2 + lane) as u32;
+                    world.lines[u as usize].out = Some(d);
+                    world.lines[d as usize].inp = Some(u);
+                }
+                BeltLink::Side { to: down, lane: tl } => {
+                    // ближняя к переднему краю приёмника полоса источника — в 67, дальняя — в 188
+                    let near = if tl == 0 { 0 } else { 1 };
+                    let off = if lane == near { SIDE_NEAR } else { SIDE_FAR };
+                    let d = (down * 2 + tl as usize) as u32;
+                    world.lines[u as usize].out = Some(d);
+                    world.lines[u as usize].side = Some(SideOut { belt: down as u32, lane: tl, off });
+                    let mut sides = std::mem::take(&mut world.lines[d as usize].sides);
+                    sides.push(u);
+                    sides.sort_by_key(|&x| world.line_key(x));
+                    world.lines[d as usize].sides = sides;
+                }
+            }
             world.schedule_remerge(u, start);
         }
     };
     // по порядку постройки: лента соединяется с теми соседями, что уже стоят
-    let mut prev: Vec<Option<usize>> = vec![None; next.len()];
-    for (i, n) in next.iter().enumerate() {
-        if let Some(n) = *n {
-            prev[n] = Some(i);
+    let target = |l: &Option<BeltLink>| match *l {
+        Some(BeltLink::Direct(f)) | Some(BeltLink::Side { to: f, .. }) => Some(f),
+        None => None,
+    };
+    let mut order: Vec<usize> = (0..links.len()).collect();
+    order.sort_by_key(|&b| built[b]);
+    // кто входит в каждую ленту (сзади и с боков), по порядку постройки
+    let mut feeders: Vec<Vec<usize>> = vec![Vec::new(); links.len()];
+    for &p in &order {
+        if let Some(f) = target(&links[p]) {
+            feeders[f].push(p);
         }
     }
-    let mut order: Vec<usize> = (0..next.len()).collect();
-    order.sort_by_key(|&b| built[b]);
-    let mut done = vec![false; next.len()];
-    for b in order {
-        if let Some(n) = next[b].filter(|&n| done[n]) {
-            link(world, b, n);
+    let mut done = vec![false; links.len()];
+    for &b in &order {
+        if let Some(l) = links[b].filter(|l| done[target(&Some(*l)).expect("цель")]) {
+            link(world, b, l);
         }
-        if let Some(p) = prev[b].filter(|&p| done[p]) {
-            link(world, p, b);
+        for &p in &feeders[b] {
+            if done[p] {
+                link(world, p, links[p].expect("цель"));
+            }
         }
         done[b] = true;
     }
@@ -662,16 +736,58 @@ mod tests {
         assert!(build(&scene(serde_json::json!([a, b, c(-2.0 + 71.0 / 256.0)])), Prototypes::bundled()).is_ok());
     }
 
+    /// Кольцо 2×2 по часовой: все четыре ленты — повороты направо (левая полоса внешняя, 295,
+    /// правая внутренняя, 106). Одного типа — одна линия на полосу, замкнутая на себя, голова —
+    /// построенная первой; разных типов — по линии на тайл, голова есть у каждой.
     #[test]
-    fn mixed_type_ring_rejected() {
-        // кольцо 2×2: обычная → быстрая → обычная → быстрая по кругу (у каждой линии есть голова)
-        let s = scene(serde_json::json!([
-            {"name": "transport-belt", "position": [0.5, 0.5], "direction": "east"},
-            {"name": "fast-transport-belt", "position": [1.5, 0.5], "direction": "south"},
-            {"name": "transport-belt", "position": [1.5, 1.5], "direction": "west"},
-            {"name": "fast-transport-belt", "position": [0.5, 1.5], "direction": "north"},
-        ]));
-        // повороты в M0 не поддержаны — кольцо отсекается при сборке
-        assert!(build(&s, Prototypes::bundled()).is_err());
+    fn rings() {
+        let ring = |a: &str, b: &str| {
+            scene(serde_json::json!([
+                {"name": a, "position": [0.5, 0.5], "direction": "east"},
+                {"name": b, "position": [1.5, 0.5], "direction": "south"},
+                {"name": a, "position": [1.5, 1.5], "direction": "west"},
+                {"name": b, "position": [0.5, 1.5], "direction": "north"},
+            ]))
+        };
+        let w = build(&ring("transport-belt", "transport-belt"), Prototypes::bundled()).unwrap();
+        assert!(w.belts.iter().all(|b| b.shape == 2 && b.lanes[0].len == 295 && b.lanes[1].len == 106));
+        for lane in 0..2 {
+            let li = w.belts[0].lanes[lane].line;
+            let l = &w.lines[li as usize];
+            assert_eq!((l.out, l.inp, l.len, l.tiles[0]), (Some(li), Some(li), [1180, 424][lane], 0));
+            // хвост кольца — тайл сразу ниже по течению переднего тайла головы
+            assert_eq!(l.tiles[3], 1);
+        }
+        let w = build(&ring("transport-belt", "fast-transport-belt"), Prototypes::bundled()).unwrap();
+        assert_eq!(w.lines.iter().filter(|l| l.alive).count(), 8);
+    }
+
+    /// Боковая загрузка: лента слева от приёмника — обе полосы в его левую полосу, ближняя к
+    /// переднему краю — в 67, дальняя — в 188; справа — в правую; приёмник прямой.
+    #[test]
+    fn side_load_links() {
+        let w = build(
+            &scene(serde_json::json!([
+                {"name": "transport-belt", "position": [0.5, 0.5], "direction": "north"},
+                {"name": "transport-belt", "position": [-0.5, 0.5], "direction": "east"},
+                {"name": "transport-belt", "position": [1.5, 0.5], "direction": "west"},
+            ])),
+            Prototypes::bundled(),
+        )
+        .unwrap();
+        assert_eq!(w.belts[0].shape, 0);
+        for (src, tl, offs) in [(1usize, 0u8, [67, 188]), (2, 1, [188, 67])] {
+            for (lane, off) in offs.into_iter().enumerate() {
+                let l = &w.lines[w.belts[src].lanes[lane].line as usize];
+                let sd = l.side.expect("выход вбок");
+                assert_eq!((sd.belt, sd.lane, sd.off), (0, tl, off));
+                assert_eq!(l.out, Some(w.belts[0].lanes[tl as usize].line));
+            }
+            let t = &w.lines[w.belts[0].lanes[tl as usize].line as usize];
+            assert_eq!(t.sides, vec![w.belts[src].lanes[0].line, w.belts[src].lanes[1].line]);
+        }
+        // одна группа на приёмник и его источник
+        let g = |b: usize, l: usize| w.lines[w.belts[b].lanes[l].line as usize].group;
+        assert!(g(1, 0) == g(0, 0) && g(1, 1) == g(0, 0) && g(2, 0) == g(0, 1) && g(0, 0) != g(0, 1));
     }
 }

@@ -187,7 +187,7 @@ pub fn orientation_f32(dx: i64, dy: i64) -> Turn {
     turn_add_f32(0, signed)
 }
 
-use super::softfloat::{Sf, P64};
+use super::softfloat::{Sf, P32, P64};
 
 /// Перевод оборотов (f64 из прототипа) в [`Turn`]. Только при загрузке.
 pub fn turn_from_f64(x: f64) -> Turn {
@@ -265,12 +265,48 @@ fn engine_cos(v: Sf) -> Sf {
 /// усечение к нулю. Высоту вычитает [`super::inserter::Hand::offset`].
 /// Проверено по эталону: все 1.8 млн наблюдений руки фаззера (seeds 1 и 2, bench/README.md).
 pub fn hand_offset(o: Turn, e: Sf) -> (i64, i64) {
-    let ov = Sf::from_scaled(o as u128, -64, P64);
-    let s = engine_cos(ov.sub(Sf::from_f64_bits(0x3fd0000000000000), P64));
-    let c = engine_cos(ov);
+    polar_offset(Sf::from_scaled(o as u128, -64, P64), e)
+}
+
+/// `(trunc(256·e·sin 2πv), −trunc(256·e·cos 2πv))`: угол `v` (доля оборота) и длина `e` — `double`.
+fn polar_offset(v: Sf, e: Sf) -> (i64, i64) {
+    let s = engine_cos(v.sub(Sf::from_f64_bits(0x3fd0000000000000), P64));
+    let c = engine_cos(v);
     let x = e.mul(s, P64).mul_pow2(8).trunc();
     let y = -e.mul(c, P64).mul_pow2(8).trunc();
     (x, y)
+}
+
+/// Радиусы полос поворота (`float`): внутренняя 0.265, внешняя 0.735 тайла от внутреннего угла.
+const TURN_R_INNER: Sf = Sf::from_f64_bits(0x3fd0f5c280000000);
+const TURN_R_OUTER: Sf = Sf::from_f64_bits(0x3fe7851ec0000000);
+
+/// Точка предмета на полосе поворота (к ней тянется рука манипулятора), выведено из
+/// наблюдений: дуга вокруг внутреннего угла тайла. `d` — расстояние до переднего края тайла по
+/// полосе, `len` — длина полосы (106 или 295), `outer` — внешняя полоса, `left` — поворот налево.
+/// Угол `a = 1/4 + 1/4·d/len` (`double`, затем `float`); смещение от центра тайла в системе ленты,
+/// смотрящей на север (x — вправо, y — назад), 1/256 тайла:
+/// `x = ∓128 ± trunc(256·r·sin 2πa)`, `y = −128 − trunc(256·r·cos 2πa)` (верхний знак — налево).
+pub fn turn_arc_offset(d: i64, len: i64, outer: bool, left: bool) -> (i64, i64) {
+    assert!((0..1 << 16).contains(&d) && (1..1 << 16).contains(&len));
+    // d/256·1/4 / (len/256) — частное в `double` с округлением к ближайшему
+    let num = (d as u128) << 100;
+    let den = 4 * len as u128;
+    let q = Sf::round(false, num / den, -100, num % den != 0, P64);
+    let quarter = Sf::from_f64_bits(0x3fd0000000000000);
+    let one = Sf::from_int(1, P32);
+    let mut a = q.add(quarter, P64).to_prec(P32);
+    if !a.lt(one) {
+        // доля оборота: дробная часть во `float`
+        a = a.sub(Sf::from_int(a.trunc(), P32), P32);
+    }
+    let r = if outer { TURN_R_OUTER } else { TURN_R_INNER };
+    let (x, y) = polar_offset(a, r);
+    if left {
+        (-128 + x, -128 + y)
+    } else {
+        (128 - x, -128 + y)
+    }
 }
 
 #[cfg(test)]

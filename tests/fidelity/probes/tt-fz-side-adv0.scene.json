@@ -1,0 +1,226 @@
+{
+ "entities": [
+  {
+   "direction": "north",
+   "name": "transport-belt",
+   "position": [
+    3.5,
+    -1.5
+   ]
+  },
+  {
+   "direction": "north",
+   "name": "transport-belt",
+   "position": [
+    3.5,
+    -2.5
+   ]
+  },
+  {
+   "direction": "north",
+   "name": "transport-belt",
+   "position": [
+    3.5,
+    -3.5
+   ]
+  },
+  {
+   "direction": "north",
+   "name": "transport-belt",
+   "position": [
+    3.5,
+    -4.5
+   ]
+  },
+  {
+   "direction": "north",
+   "name": "transport-belt",
+   "position": [
+    3.5,
+    -5.5
+   ]
+  },
+  {
+   "direction": "north",
+   "name": "transport-belt",
+   "position": [
+    3.5,
+    -6.5
+   ]
+  },
+  {
+   "direction": "north",
+   "name": "transport-belt",
+   "position": [
+    3.5,
+    -7.5
+   ]
+  },
+  {
+   "direction": "north",
+   "name": "transport-belt",
+   "position": [
+    3.5,
+    -8.5
+   ]
+  },
+  {
+   "direction": "north",
+   "name": "transport-belt",
+   "position": [
+    3.5,
+    -9.5
+   ]
+  },
+  {
+   "direction": "north",
+   "name": "transport-belt",
+   "position": [
+    3.5,
+    -10.5
+   ]
+  },
+  {
+   "direction": "north",
+   "name": "transport-belt",
+   "position": [
+    3.5,
+    -11.5
+   ]
+  },
+  {
+   "direction": "north",
+   "name": "transport-belt",
+   "position": [
+    3.5,
+    -12.5
+   ]
+  },
+  {
+   "direction": "north",
+   "name": "transport-belt",
+   "position": [
+    3.5,
+    -13.5
+   ]
+  },
+  {
+   "direction": "north",
+   "name": "transport-belt",
+   "position": [
+    3.5,
+    -14.5
+   ]
+  },
+  {
+   "direction": "north",
+   "name": "transport-belt",
+   "position": [
+    3.5,
+    -15.5
+   ]
+  },
+  {
+   "direction": "north",
+   "name": "transport-belt",
+   "position": [
+    3.5,
+    -16.5
+   ]
+  },
+  {
+   "direction": "north",
+   "name": "transport-belt",
+   "position": [
+    3.5,
+    -17.5
+   ]
+  },
+  {
+   "direction": "north",
+   "name": "transport-belt",
+   "position": [
+    3.5,
+    -18.5
+   ]
+  },
+  {
+   "direction": "north",
+   "name": "transport-belt",
+   "position": [
+    3.5,
+    -19.5
+   ]
+  },
+  {
+   "direction": "south",
+   "name": "inserter",
+   "position": [
+    3.5,
+    -0.5
+   ]
+  },
+  {
+   "items": {
+    "stone": 18
+   },
+   "name": "wooden-chest",
+   "position": [
+    3.5,
+    0.5
+   ]
+  },
+  {
+   "direction": "west",
+   "name": "fast-transport-belt",
+   "position": [
+    6.5,
+    -8.5
+   ]
+  },
+  {
+   "direction": "west",
+   "name": "fast-transport-belt",
+   "position": [
+    5.5,
+    -8.5
+   ]
+  },
+  {
+   "direction": "west",
+   "name": "fast-transport-belt",
+   "position": [
+    4.5,
+    -8.5
+   ]
+  },
+  {
+   "direction": "east",
+   "drop": [
+    1.24609375,
+    -0.7265625
+   ],
+   "name": "inserter",
+   "pickup": [
+    -2.86328125,
+    -2.0
+   ],
+   "position": [
+    5.5,
+    -7.5
+   ]
+  },
+  {
+   "items": {
+    "stone": 371
+   },
+   "name": "iron-chest",
+   "position": [
+    2.5,
+    -9.5
+   ]
+  }
+ ],
+ "name": "tt-fz-side-adv0",
+ "ticks": 220
+}

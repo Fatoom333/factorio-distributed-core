@@ -54,7 +54,7 @@ fn phase(w: &mut World, order: &[usize], start: usize, a: &[DumpInserter], b: &T
                 for (lane, idx) in cands {
                     *w = saved.clone();
                     let li = w.belts[t].lanes[lane].line;
-                    w.touch(t, lane, now);
+                    w.touch(t, lane, now, false);
                     w.belt_remove(li, idx);
                     if phase(w, order, oi + 1, a, b, now) {
                         return true;
@@ -65,7 +65,7 @@ fn phase(w: &mut World, order: &[usize], start: usize, a: &[DumpInserter], b: &T
                 // сток стоит у точки захвата и ищет: отмечает полосы, чьи линии не пусты
                 for lane in 0..2 {
                     if !w.lines[w.belts[t].lanes[lane].line as usize].is_empty() {
-                        w.touch(t, lane, now);
+                        w.touch(t, lane, now, false);
                     }
                 }
             }
