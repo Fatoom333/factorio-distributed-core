@@ -31,7 +31,7 @@ use fixed::{hypot_f64, orientation_f32, Fx, TILE};
 use inserter::{HandTarget, Inserter, Target};
 use inventory::Chest;
 use layout::{DumpBelt, DumpChest, DumpInserter, DumpItem, LayoutError, Pos, Scene, TickDump};
-use proto::{LANE_OFFSET, TILE_LANE_LEN};
+use proto::{LANE_OFFSET, TILE_LANE_LEN, UG_SURFACE_LEN};
 use wake::{WakeRef, NONE};
 
 /// Направление сущности.
@@ -81,9 +81,29 @@ impl Dir {
     }
 }
 
+/// Вид тайла ленты. Подземная лента — это надземная половина тайла входа, подземная часть
+/// пары и надземная половина тайла выхода; каждая — свой «тайл» в `World::belts` со своей длиной
+/// полос (128, `D · 256`, 128), а движутся предметы по ним как по обычным лентам
+/// (docs/mechanics/belts.md, «Подземные ленты»).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize)]
+pub enum TileKind {
+    /// Обычная лента (прямая или поворот).
+    Belt,
+    /// Вход подземной ленты: надземная часть — задняя половина тайла.
+    UgIn,
+    /// Выход подземной ленты: надземная часть — передняя половина тайла.
+    UgOut,
+    /// Подземная часть пары. Скрытый тайл: в сцене его нет, манипуляторам недоступен, в эталоне
+    /// пишется полем `under` своего входа. Стоит в `World::belts` после всех тайлов сцены.
+    Under,
+}
+
 /// Тайл ленты.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
 pub struct BeltTile {
+    pub kind: TileKind,
+    /// У входа подземки с парой — индекс скрытого тайла подземной части, иначе `NONE`.
+    pub under: u32,
     /// Центр, 1/256 тайла.
     pub pos: (Fx, Fx),
     pub dir: Dir,
@@ -109,7 +129,8 @@ impl BeltTile {
         }
         let (ux, uy) = self.dir.unit();
         let (rx, ry) = self.dir.right();
-        let along = TILE / 2 - p;
+        // у входа подземки `p = 0` — центр тайла (уход под землю), у выхода — передний край
+        let along = if self.kind == TileKind::UgIn { -p } else { TILE / 2 - p };
         let side = if lane == 0 { -LANE_OFFSET } else { LANE_OFFSET };
         (self.pos.0 + ux * along + rx * side, self.pos.1 + uy * along + ry * side)
     }
@@ -138,7 +159,14 @@ impl BeltTile {
             return (lane, self.lanes[lane].len >> 1);
         }
         let lane = if lateral < 0 { 0 } else { 1 };
-        (lane, (TILE / 2 - along).clamp(0, TILE_LANE_LEN - 1))
+        // Подземка: точка на любой части тайла зажимается в надземную половину (у входа —
+        // задняя, у выхода — передняя); кладка на «крышу» попадает к центру тайла (пробы `ug-r-edge-*`).
+        let p = match self.kind {
+            TileKind::UgIn => (-along).clamp(0, UG_SURFACE_LEN - 1),
+            TileKind::UgOut => (TILE / 2 - along).clamp(0, UG_SURFACE_LEN - 1),
+            TileKind::Belt | TileKind::Under => (TILE / 2 - along).clamp(0, TILE_LANE_LEN - 1),
+        };
+        (lane, p)
     }
 }
 
@@ -628,8 +656,9 @@ impl World {
             .belts
             .iter()
             .enumerate()
+            .filter(|(_, t)| t.kind != TileKind::Under)
             .map(|(b, t)| {
-                let lane_items = |lane: usize| -> Vec<DumpItem> {
+                let lane_items = |b: usize, lane: usize| -> Vec<DumpItem> {
                     let (li, lo, hi) = self.lane_span(b, lane);
                     let mut v: Vec<DumpItem> = self.lines[li as usize]
                         .range(lo, hi)
@@ -638,7 +667,13 @@ impl World {
                     v.sort_by_key(|d| d.p);
                     v
                 };
-                DumpBelt { pos: Pos(t.pos.0, t.pos.1), lines: [lane_items(0), lane_items(1)] }
+                // у подземки — ещё линии 3 и 4: подземная часть у входа с парой, иначе пусто
+                let under = match (t.kind, t.under) {
+                    (TileKind::Belt, _) => None,
+                    (_, NONE) => Some([Vec::new(), Vec::new()]),
+                    (_, u) => Some([lane_items(u as usize, 0), lane_items(u as usize, 1)]),
+                };
+                DumpBelt { pos: Pos(t.pos.0, t.pos.1), lines: [lane_items(b, 0), lane_items(b, 1)], under }
             })
             .collect();
         let inserters = self

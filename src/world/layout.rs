@@ -10,11 +10,12 @@ use super::fixed::{fx_from_f64, hypot_f64, orientation_f32, Fx, TILE};
 use super::inserter::{Hand, HandTarget, Inserter, Target};
 use super::inventory::{Chest, Inventory};
 use super::proto::{
-    BeltProto, InserterProto, Prototypes, SIDE_FAR, SIDE_NEAR, TILE_LANE_LEN, TURN_INNER_LEN, TURN_OUTER_LEN,
+    BeltProto, InserterProto, Prototypes, SIDE_FAR, SIDE_NEAR, TILE_LANE_LEN, TURN_INNER_LEN, TURN_OUTER_LEN, UG_SIDE_IN,
+    UG_SIDE_OUT, UG_SURFACE_LEN,
 };
 use super::softfloat::Sf;
 use super::wake::{WakeRef, NONE};
-use super::{BeltTile, Dir, World};
+use super::{BeltTile, Dir, TileKind, World};
 
 // ---------- сцена ----------
 
@@ -48,6 +49,32 @@ pub struct SceneEntity {
     pub pickup: Option<[f64; 2]>,
     #[serde(default)]
     pub drop: Option<[f64; 2]>,
+    /// Вид подземной ленты: `"input"` (вход под землю) или `"output"` (выход). Обязательно у
+    /// подземной ленты и только у неё; `direction` у обоих — куда едут предметы.
+    #[serde(default, rename = "type", skip_serializing_if = "Option::is_none")]
+    pub ug_type: Option<String>,
+}
+
+/// Вид подземной ленты из поля `type` сцены.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum UgType {
+    Input,
+    Output,
+}
+
+impl SceneEntity {
+    /// Проверка поля `type`: у подземной ленты (`is_underground`) — обязательное `input` /
+    /// `output`, у остальных сущностей поля быть не должно.
+    pub fn underground_type(&self, i: usize, is_underground: bool) -> Result<Option<UgType>, LayoutError> {
+        match (is_underground, self.ug_type.as_deref()) {
+            (true, Some("input")) => Ok(Some(UgType::Input)),
+            (true, Some("output")) => Ok(Some(UgType::Output)),
+            (true, Some(t)) => err(format!("сущность {i} {}: плохой type {t:?} (нужно \"input\" или \"output\")", self.name)),
+            (true, None) => err(format!("сущность {i} {}: у подземной ленты нужен type (\"input\" или \"output\")", self.name)),
+            (false, Some(_)) => err(format!("сущность {i} {}: type только у подземной ленты", self.name)),
+            (false, None) => Ok(None),
+        }
+    }
 }
 
 impl Scene {
@@ -86,6 +113,11 @@ pub struct DumpItem {
 pub struct DumpBelt {
     pub pos: Pos,
     pub lines: [Vec<DumpItem>; 2],
+    /// Только у подземной ленты: линии 3 и 4 сущности — подземная часть (у входа с парой —
+    /// предметы под землёй, `p` — расстояние до центра тайла выхода; у выхода и у подземки без
+    /// пары игра эти линии не использует). У обычной ленты поля нет.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub under: Option<[Vec<DumpItem>; 2]>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -139,13 +171,25 @@ enum Kind {
     Rail,
 }
 
-/// Куда выходит лента: прямо в ленту `0` (то же направление или поворот, который она питает) или
-/// вбок — в полосу `lane` прямой ленты `to`.
+/// Куда выходит полоса тайла: прямо в ту же полосу тайла `0` (то же направление, поворот,
+/// который она питает, или следующий кусок подземки) или вбок — в полосу `lane` тайла `to`, в
+/// точку `off` от начала его полосы.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum BeltLink {
     Direct(usize),
-    Side { to: usize, lane: u8 },
+    Side { to: usize, lane: u8, off: Fx },
 }
+
+impl BeltLink {
+    fn target(self) -> usize {
+        match self {
+            BeltLink::Direct(f) | BeltLink::Side { to: f, .. } => f,
+        }
+    }
+}
+
+/// Выходы обеих полос тайла (у «половинной» боковой загрузки в подземку выход есть у одной).
+type TileLinks = [Option<BeltLink>; 2];
 
 /// Тайл, на котором лежит точка (1/256), — целые координаты тайла.
 fn tile_of(x: Fx, y: Fx) -> (i32, i32) {
@@ -229,6 +273,8 @@ pub fn build(scene: &Scene, protos: &Prototypes) -> Result<World, LayoutError> {
     let mut at: HashMap<(i32, i32), Kind> = HashMap::new();
     // номер сущности сцены у каждой ленты — порядок постройки
     let mut built: Vec<usize> = Vec::new();
+    // подземки: (тайл, предел дальности пары)
+    let mut ug_reach: Vec<(usize, i32)> = Vec::new();
 
     for (i, e) in scene.entities.iter().enumerate() {
         check_range("позиция", i, &e.name, e.position, MAX_COORD_TILES)?;
@@ -239,6 +285,7 @@ pub fn build(scene: &Scene, protos: &Prototypes) -> Result<World, LayoutError> {
             check_range("drop", i, &e.name, v, MAX_VECTOR_TILES)?;
         }
         let pos = (fx_from_f64(e.position[0]), fx_from_f64(e.position[1]));
+        let ug = e.underground_type(i, protos.undergrounds.contains_key(&e.name))?;
         if e.name == "straight-rail" {
             // Прямой рельс 2×2: центр на границе тайлов, занимает четыре тайла. Вагонов и
             // поездов в модели нет, поэтому рельс — всегда «без вагона» (манипулятор ждёт поезд).
@@ -275,8 +322,19 @@ pub fn build(scene: &Scene, protos: &Prototypes) -> Result<World, LayoutError> {
             let b = u32::try_from(belts.len()).ok().and_then(|b| b.checked_mul(2)).ok_or_else(|| LayoutError("слишком много лент".into()))?;
             // каждая лента сначала — своя линия на каждую полосу (как сразу после постройки);
             // форма и длины полос — ниже, когда известны соседи
-            belts.push(BeltTile { pos, dir, proto, shape: 0, unit: i as u32, lanes: [lane(b), lane(b + 1)] });
+            belts.push(BeltTile { kind: TileKind::Belt, under: NONE, pos, dir, proto, shape: 0, unit: i as u32, lanes: [lane(b), lane(b + 1)] });
             built.push(i);
+            Kind::Belt(belts.len() - 1)
+        } else if let (Some(up), Some(ug)) = (protos.undergrounds.get(&e.name), ug) {
+            // Подземка: в сцене — надземная половина тайла (полосы по 128); подземная часть
+            // добавляется ниже, когда найдены пары.
+            let proto = proto_index(&mut belt_protos, &BeltProto { name: up.name.clone(), speed: up.speed });
+            let lane = |line: u32| TileLane { line, start: 0, len: UG_SURFACE_LEN, touched: None, strong: false };
+            let b = u32::try_from(belts.len()).ok().and_then(|b| b.checked_mul(2)).ok_or_else(|| LayoutError("слишком много лент".into()))?;
+            let kind = if ug == UgType::Input { TileKind::UgIn } else { TileKind::UgOut };
+            belts.push(BeltTile { kind, under: NONE, pos, dir, proto, shape: 0, unit: i as u32, lanes: [lane(b), lane(b + 1)] });
+            built.push(i);
+            ug_reach.push((belts.len() - 1, up.max_distance as i32));
             Kind::Belt(belts.len() - 1)
         } else if let Some(ip) = protos.inserters.get(&e.name) {
             let proto = proto_index(&mut ins_protos, ip);
@@ -363,6 +421,79 @@ pub fn build(scene: &Scene, protos: &Prototypes) -> Result<World, LayoutError> {
         }
     }
 
+    // ---- пары подземок ----
+    let belt_at = |t: (i32, i32)| -> Option<usize> {
+        match at.get(&t) {
+            Some(Kind::Belt(b)) => Some(*b),
+            _ => None,
+        }
+    };
+    let add = |t: (i32, i32), v: (i32, i32)| (t.0 + v.0, t.1 + v.1);
+    // Куда «смотрит» туннель: вход — вперёд по ходу, выход — назад. Пара — первая подземка того
+    // же прототипа на этом луче не дальше предела дальности, если она смотрит навстречу; смотрит
+    // туда же — пары нет; поперечные, чужие прототипы и прочие сущности луч не видит
+    // (docs/mechanics/belts.md, «Подземные ленты»; пробы `ug-r-pair-*`).
+    let face = |b: &BeltTile| if b.kind == TileKind::UgIn { b.dir } else { b.dir.opposite() };
+    let mut pairs: Vec<(usize, usize, i32)> = Vec::new(); // (вход, выход, расстояние)
+    for &(u, reach) in &ug_reach {
+        let (ub, f) = (&belts[u], face(&belts[u]));
+        let t0 = tile_of(ub.pos.0, ub.pos.1);
+        for d in 1..=reach {
+            let (fx, fy) = f.unit();
+            let Some(o) = belt_at((t0.0 + fx * d, t0.1 + fy * d)) else { continue };
+            let ob = &belts[o];
+            if ob.kind == TileKind::Belt || ob.proto != ub.proto {
+                continue;
+            }
+            let of = face(ob);
+            if of == f {
+                break;
+            }
+            if of != f.opposite() {
+                continue;
+            }
+            if ob.kind == ub.kind {
+                // Игра в таком случае сама переделывает поставленный позже конец (меняет вид и
+                // направление): такой сцены в игре не бывает, модель её не считает.
+                return err(format!(
+                    "сущность {}: {} не поддержан моделью: два одинаковых конца подземки смотрят друг на друга (сущность {})",
+                    ub.unit, belt_protos[ub.proto as usize].name, ob.unit
+                ));
+            }
+            if ub.kind == TileKind::UgIn {
+                pairs.push((u, o, d));
+            }
+            break;
+        }
+    }
+    // Состояние подземок в первые тики после постройки (кто с кем уже соединён, когда сливаются
+    // линии пары) с игрой не сверено: модель считает только сцену после прогрева.
+    if !ug_reach.is_empty() && scene.warmup.is_some_and(|w| w < WARMUP_SETTLED) {
+        return err(format!(
+            "подземные ленты с прогревом меньше {WARMUP_SETTLED} тиков не поддержаны моделью: состояние сразу после постройки не сверено"
+        ));
+    }
+    // подземная часть пары — скрытый тайл длиной D · 256 после всех тайлов сцены
+    let mut under_out: HashMap<usize, usize> = HashMap::new();
+    for &(i, o, d) in &pairs {
+        let h = belts.len();
+        let b = u32::try_from(h).ok().and_then(|b| b.checked_mul(2)).ok_or_else(|| LayoutError("слишком много лент".into()))?;
+        let lane = |line: u32| TileLane { line, start: 0, len: d * TILE_LANE_LEN, touched: None, strong: false };
+        let src = &belts[i];
+        let tile = BeltTile { kind: TileKind::Under, under: NONE, pos: src.pos, dir: src.dir, proto: src.proto, shape: 0, unit: src.unit, lanes: [lane(b), lane(b + 1)] };
+        belts.push(tile);
+        belts[i].under = h as u32;
+        // НЕ СВЕРЕНО С ИГРОЙ (допущение): место скрытого тайла в порядке постройки — вместе с
+        // концом пары, построенным позже. На результат сейчас не влияет: прогрев короче
+        // `WARMUP_SETTLED` с подземками отклонён выше. Понадобится при коротком прогреве и
+        // постройке на ходу — тогда снять пробами.
+        // Номер постройки скрытого тайла (`unit` — как у входа) сверен наполовину: в кольце,
+        // где первым построен выход, голова кольца — не подземная часть (пробы
+        // `ug-y-ring-out-first*` расходятся, если дать ей номер выхода); точное значение не различено.
+        built.push(built[i].max(built[o]));
+        under_out.insert(h, o);
+    }
+
     // ---- линии лент ----
     let belt_at = |t: (i32, i32)| -> Option<usize> {
         match at.get(&t) {
@@ -375,16 +506,19 @@ pub fn build(scene: &Scene, protos: &Prototypes) -> Result<World, LayoutError> {
         let (dx, dy) = b.dir.unit();
         (tx + dx, ty + dy)
     };
-    let add = |t: (i32, i32), v: (i32, i32)| (t.0 + v.0, t.1 + v.1);
     // Форма ленты (выведено из наблюдений, docs/mechanics/belts.md, «Повороты»): лента «питает»
     // соседа, если смотрит в него. Питает сзади — прямая; иначе питает ровно один бок — поворот
-    // (вход слева — налево, справа — направо); оба бока или никто — прямая.
+    // (вход слева — налево, справа — направо); оба бока или никто — прямая. Выход подземки питает
+    // как лента, вход подземки не питает никого (перед ним — он сам). У подземки формы нет.
     let feeds_into = |from: (i32, i32), to: (i32, i32)| -> bool {
-        belt_at(from).is_some_and(|x| add(from, belts[x].dir.unit()) == to)
+        belt_at(from).is_some_and(|x| belts[x].kind != TileKind::UgIn && add(from, belts[x].dir.unit()) == to)
     };
     let shapes: Vec<u8> = belts
         .iter()
         .map(|bt| {
+            if bt.kind != TileKind::Belt {
+                return 0;
+            }
             let (d, t) = (bt.dir, tile_of(bt.pos.0, bt.pos.1));
             let (ux, uy) = d.unit();
             let (rx, ry) = d.right();
@@ -401,6 +535,9 @@ pub fn build(scene: &Scene, protos: &Prototypes) -> Result<World, LayoutError> {
         })
         .collect();
     for (b, &shape) in shapes.iter().enumerate() {
+        if belts[b].kind != TileKind::Belt {
+            continue;
+        }
         let lens = match shape {
             1 => [TURN_INNER_LEN, TURN_OUTER_LEN],
             2 => [TURN_OUTER_LEN, TURN_INNER_LEN],
@@ -411,26 +548,72 @@ pub fn build(scene: &Scene, protos: &Prototypes) -> Result<World, LayoutError> {
             tl.len = len;
         }
     }
-    // Выход каждой ленты: прямой (в ленту того же направления или в поворот, который она питает),
-    // вбок (в бок прямой ленты) или никуда (лента впереди смотрит навстречу или её нет).
-    let links: Vec<Option<BeltLink>> = belts
+    // Выход каждого тайла. Лента и выход подземки: прямо (в ленту того же направления, в поворот,
+    // который они питают, или во вход подземки того же направления), вбок (в бок прямой ленты или
+    // подземки) или никуда (впереди пусто, лента навстречу или выход подземки спиной). Вход
+    // подземки: в подземную часть пары (нет пары — тупик); подземная часть — в выход.
+    let links: Vec<TileLinks> = belts
         .iter()
-        .map(|b| {
-            let f = belt_at(front_of(b))?;
-            let fd = belts[f].dir;
-            if fd == b.dir.opposite() {
-                None
-            } else if fd == b.dir || belts[f].shape != 0 {
-                Some(BeltLink::Direct(f))
-            } else {
-                // источник слева от приёмника — в его левую полосу, справа — в правую
-                let (rx, ry) = fd.right();
-                let ft = tile_of(belts[f].pos.0, belts[f].pos.1);
-                let on_left = tile_of(b.pos.0, b.pos.1) == (ft.0 - rx, ft.1 - ry);
-                Some(BeltLink::Side { to: f, lane: if on_left { 0 } else { 1 } })
+        .enumerate()
+        .map(|(bi, b)| {
+            match b.kind {
+                TileKind::Under => return [Some(BeltLink::Direct(under_out[&bi])); 2],
+                TileKind::UgIn => return [(b.under != NONE).then_some(BeltLink::Direct(b.under as usize)); 2],
+                TileKind::Belt | TileKind::UgOut => {}
             }
+            let Some(f) = belt_at(front_of(b)) else { return [None; 2] };
+            let (fd, fk) = (belts[f].dir, belts[f].kind);
+            if fd == b.dir.opposite() {
+                return [None; 2];
+            }
+            if fd == b.dir {
+                // за выходом подземки соединения нет: лента упирается в него, как в тупик
+                return [(fk != TileKind::UgOut).then_some(BeltLink::Direct(f)); 2];
+            }
+            if belts[f].shape != 0 {
+                return [Some(BeltLink::Direct(f)); 2];
+            }
+            // источник слева от приёмника — в его левую полосу, справа — в правую
+            let (rx, ry) = fd.right();
+            let ft = tile_of(belts[f].pos.0, belts[f].pos.1);
+            let on_left = tile_of(b.pos.0, b.pos.1) == (ft.0 - rx, ft.1 - ry);
+            let tl: u8 = if on_left { 0 } else { 1 };
+            // полоса источника, ближняя к переднему краю приёмника
+            let near = tl as usize;
+            let mut out = [None; 2];
+            match fk {
+                // лента: ближняя полоса источника — в 67, дальняя — в 188
+                TileKind::Belt => {
+                    for (lane, o) in out.iter_mut().enumerate() {
+                        let off = if lane == near { SIDE_NEAR } else { SIDE_FAR };
+                        *o = Some(BeltLink::Side { to: f, lane: tl, off });
+                    }
+                }
+                // Подземка принимает сбоку одну полосу: выход — ближнюю к своему переднему краю,
+                // вход — ближнюю к заднему (надземная половина тайла); вторая полоса источника
+                // остаётся без выхода (пробы `ug-side-*`, `ug-r-side-*`).
+                TileKind::UgOut => out[near] = Some(BeltLink::Side { to: f, lane: tl, off: UG_SIDE_OUT }),
+                TileKind::UgIn => out[1 - near] = Some(BeltLink::Side { to: f, lane: tl, off: UG_SIDE_IN }),
+                TileKind::Under => unreachable!("подземной части нет на карте"),
+            }
+            out
         })
         .collect();
+    // В полосу тайла напрямую входит не больше одной полосы: иначе цепочка линий не цепочка, и
+    // обход её головы не кончится. Правила выше такого не дают; проверка — на случай их правки.
+    let mut direct_in = vec![false; belts.len() * 2];
+    for (b, l) in links.iter().enumerate() {
+        for (lane, link) in l.iter().enumerate() {
+            if let Some(BeltLink::Direct(f)) = *link {
+                if std::mem::replace(&mut direct_in[f * 2 + lane], true) {
+                    return err(format!(
+                        "сущность {}: внутренняя ошибка сборки лент: в полосу {lane} тайла {} напрямую входят две ленты",
+                        belts[b].unit, belts[f].unit
+                    ));
+                }
+            }
+        }
+    }
     // Группы линий: связные куски графа «полоса тайла — полоса тайла» по прямым и боковым
     // соединениям (боковое соединение сливает группы источника и приёмника).
     let mut parent: Vec<usize> = (0..belts.len() * 2).collect();
@@ -442,10 +625,10 @@ pub fn build(scene: &Scene, protos: &Prototypes) -> Result<World, LayoutError> {
         x
     }
     for (b, l) in links.iter().enumerate() {
-        for lane in 0..2 {
-            let to = match *l {
+        for (lane, link) in l.iter().enumerate() {
+            let to = match *link {
                 Some(BeltLink::Direct(f)) => f * 2 + lane,
-                Some(BeltLink::Side { to, lane: tl }) => to * 2 + tl as usize,
+                Some(BeltLink::Side { to, lane: tl, .. }) => to * 2 + tl as usize,
                 None => continue,
             };
             let (x, y) = (root(&mut parent, b * 2 + lane), root(&mut parent, to));
@@ -533,7 +716,7 @@ pub const WARMUP_SETTLED: u64 = 1024;
 ///
 /// Отсюда начальный порядок манипуляторов (проверено по эталону: пробы `t1*`, `c1*`, `c3*`,
 /// `ins-warm-*`; docs/mechanics/inserters.md, «Начальный порядок»).
-fn settle(world: &mut World, links: &[Option<BeltLink>], built: &[usize], warmup: Option<u64>) {
+fn settle(world: &mut World, links: &[TileLinks], built: &[usize], warmup: Option<u64>) {
     let w = warmup.unwrap_or(WARMUP_SETTLED).min(WARMUP_SETTLED) as i64;
     connect_belts(world, links, built, -w);
     for i in 0..world.inserters.len() {
@@ -574,20 +757,18 @@ fn settle(world: &mut World, links: &[Option<BeltLink>], built: &[usize], warmup
 ///
 /// Все сущности сцены строятся в одном тике, по порядку сцены. Заявки исполняет прогрев
 /// ([`settle`]).
-fn connect_belts(world: &mut World, links: &[Option<BeltLink>], built: &[usize], start: i64) {
-    let link = |world: &mut World, up: usize, to: BeltLink| {
+fn connect_belts(world: &mut World, links: &[TileLinks], built: &[usize], start: i64) {
+    let link = |world: &mut World, up: usize| {
         for lane in 0..2 {
             let u = (up * 2 + lane) as u32;
-            match to {
-                BeltLink::Direct(down) => {
+            match links[up][lane] {
+                None => continue,
+                Some(BeltLink::Direct(down)) => {
                     let d = (down * 2 + lane) as u32;
                     world.lines[u as usize].out = Some(d);
                     world.lines[d as usize].inp = Some(u);
                 }
-                BeltLink::Side { to: down, lane: tl } => {
-                    // ближняя к переднему краю приёмника полоса источника — в 67, дальняя — в 188
-                    let near = if tl == 0 { 0 } else { 1 };
-                    let off = if lane == near { SIDE_NEAR } else { SIDE_FAR };
+                Some(BeltLink::Side { to: down, lane: tl, off }) => {
                     let d = (down * 2 + tl as usize) as u32;
                     world.lines[u as usize].out = Some(d);
                     world.lines[u as usize].side = Some(SideOut { belt: down as u32, lane: tl, off });
@@ -600,14 +781,12 @@ fn connect_belts(world: &mut World, links: &[Option<BeltLink>], built: &[usize],
             world.schedule_remerge(u, start);
         }
     };
-    // по порядку постройки: лента соединяется с теми соседями, что уже стоят
-    let target = |l: &Option<BeltLink>| match *l {
-        Some(BeltLink::Direct(f)) | Some(BeltLink::Side { to: f, .. }) => Some(f),
-        None => None,
-    };
+    // по порядку постройки: тайл соединяется с теми соседями, что уже стоят (подземная часть
+    // пары появляется вместе с тем концом, что построен позже)
+    let target = |l: &TileLinks| l.iter().flatten().next().map(|x| x.target());
     let mut order: Vec<usize> = (0..links.len()).collect();
     order.sort_by_key(|&b| built[b]);
-    // кто входит в каждую ленту (сзади и с боков), по порядку постройки
+    // кто входит в каждый тайл (сзади и с боков), по порядку постройки
     let mut feeders: Vec<Vec<usize>> = vec![Vec::new(); links.len()];
     for &p in &order {
         if let Some(f) = target(&links[p]) {
@@ -616,12 +795,12 @@ fn connect_belts(world: &mut World, links: &[Option<BeltLink>], built: &[usize],
     }
     let mut done = vec![false; links.len()];
     for &b in &order {
-        if let Some(l) = links[b].filter(|l| done[target(&Some(*l)).expect("цель")]) {
-            link(world, b, l);
+        if target(&links[b]).is_some_and(|f| done[f]) {
+            link(world, b);
         }
         for &p in &feeders[b] {
             if done[p] {
-                link(world, p, links[p].expect("цель"));
+                link(world, p);
             }
         }
         done[b] = true;
@@ -659,6 +838,145 @@ mod tests {
         rejected(serde_json::json!([ins(serde_json::json!([0.0, -1.0]), serde_json::json!([0.0, -1e300]))]));
         rejected(serde_json::json!([ins(serde_json::json!([0.0, -1.0]), serde_json::json!([17.0, 0.0]))]));
         assert!(build(&scene(serde_json::json!([ins(serde_json::json!([0.0, -1.0]), serde_json::json!([16.0, 0.0]))])), Prototypes::bundled()).is_ok());
+    }
+
+    /// Подземная лента: формат проверяется (обязательный `type`, только у подземки).
+    #[test]
+    fn underground_format() {
+        let ug = |t: serde_json::Value| {
+            let mut e = serde_json::json!({"name": "fast-underground-belt", "position": [0.5, 0.5], "direction": "east"});
+            if !t.is_null() {
+                e["type"] = t;
+            }
+            serde_json::json!([e])
+        };
+        assert!(build(&scene(ug(serde_json::json!("input"))), Prototypes::bundled()).is_ok());
+        assert!(build(&scene(ug(serde_json::json!("output"))), Prototypes::bundled()).is_ok());
+        assert!(rejected(ug(serde_json::json!("sideways"))).contains("плохой type"));
+        assert!(rejected(ug(serde_json::Value::Null)).contains("нужен type"));
+        let belt = serde_json::json!([{"name": "transport-belt", "position": [0.5, 0.5], "type": "input"}]);
+        assert!(rejected(belt).contains("type только у подземной ленты"));
+        // поле `type` сохраняется при записи сцены и не появляется у остальных сущностей
+        let sc = scene(ug(serde_json::json!("output")));
+        assert_eq!(serde_json::to_value(&sc).unwrap()["entities"][0]["type"], "output");
+        let sc = scene(serde_json::json!([{"name": "transport-belt", "position": [0.5, 0.5]}]));
+        assert!(serde_json::to_value(&sc).unwrap()["entities"][0].get("type").is_none());
+        // эталон: у подземки есть "under", у ленты — нет
+        let d: TickDump = serde_json::from_str(
+            r#"{"t":0,"belts":[{"pos":[0.5,0.5],"lines":[[],[]]},{"pos":[1.5,0.5],"lines":[[],[]],"ug":"input","under":[[{"item":"coal","p":700}],[]]}],"inserters":[],"chests":[]}"#,
+        )
+        .unwrap();
+        assert!(d.belts[0].under.is_none());
+        assert_eq!(d.belts[1].under.as_ref().unwrap()[0][0].p, 700);
+    }
+
+    fn ug(name: &str, kind: &str, x: f64, y: f64, dir: &str) -> serde_json::Value {
+        serde_json::json!({"name": name, "position": [x, y], "direction": dir, "type": kind})
+    }
+
+    /// Пара подземок: первая подземка того же прототипа на луче, не дальше предела; после
+    /// прогрева лента, вход, подземная часть, выход и лента за ним — одна линия на полосу.
+    #[test]
+    fn underground_pairs_and_lines() {
+        let belt = |x: f64| serde_json::json!({"name": "transport-belt", "position": [x, 0.5], "direction": "east"});
+        let y = "underground-belt";
+        let w = build(&scene(serde_json::json!([belt(-0.5), ug(y, "input", 0.5, 0.5, "east"), ug(y, "output", 3.5, 0.5, "east"), belt(4.5)])), Prototypes::bundled()).unwrap();
+        assert_eq!(w.belts.len(), 5);
+        let h = w.belts[1].under as usize;
+        assert_eq!((h, w.belts[h].kind, w.belts[h].lanes[0].len), (4, TileKind::Under, 768));
+        assert_eq!((w.belts[1].lanes[0].len, w.belts[2].lanes[1].len, w.belts[2].under), (128, 128, NONE));
+        for lane in 0..2 {
+            let l = &w.lines[w.belts[3].lanes[lane].line as usize];
+            // от переднего тайла к заднему: лента, выход, подземная часть, вход, лента
+            assert_eq!((l.tiles.clone(), l.len), (vec![3, 2, 4, 1, 0], 256 + 128 + 768 + 128 + 256));
+            assert_eq!((w.belts[2].lanes[lane].start, w.belts[4].lanes[lane].start, w.belts[1].lanes[lane].start), (256, 384, 1152));
+        }
+        // эталон: у подземки есть `under`, скрытый тайл отдельной лентой не пишется
+        let d = w.dump();
+        assert_eq!(d.belts.len(), 4);
+        assert!(d.belts[0].under.is_none() && d.belts[1].under.is_some() && d.belts[2].under.is_some());
+        let paired = |ents: serde_json::Value| -> Vec<bool> {
+            let w = build(&scene(ents), Prototypes::bundled()).unwrap();
+            w.belts.iter().filter(|b| b.kind == TileKind::UgIn).map(|b| b.under != NONE).collect()
+        };
+        // предел дальности: 5 — пара, 6 — нет
+        assert_eq!(paired(serde_json::json!([ug(y, "input", 0.5, 0.5, "east"), ug(y, "output", 5.5, 0.5, "east")])), [true]);
+        assert_eq!(paired(serde_json::json!([ug(y, "input", 0.5, 0.5, "east"), ug(y, "output", 6.5, 0.5, "east")])), [false]);
+        // ближний вход того же прототипа перехватывает выход; порядок постройки не важен
+        let (a, b, c) = (ug(y, "input", 0.5, 0.5, "east"), ug(y, "input", 2.5, 0.5, "east"), ug(y, "output", 4.5, 0.5, "east"));
+        assert_eq!(paired(serde_json::json!([a, b, c])), [false, true]);
+        assert_eq!(paired(serde_json::json!([c, b, a])), [true, false]);
+        // чужой прототип и поперечная подземка того же прототипа лучу не мешают
+        let f = "fast-underground-belt";
+        assert_eq!(paired(serde_json::json!([a, ug(f, "input", 2.5, 0.5, "east"), c])), [true, false]);
+        assert_eq!(paired(serde_json::json!([a, ug(y, "input", 2.5, 0.5, "south"), c])), [true, false]);
+        // выход с ходом навстречу смотрит туда же, куда вход, — пары нет
+        assert_eq!(paired(serde_json::json!([a, ug(y, "output", 3.5, 0.5, "west")])), [false]);
+        // два входа лицом друг к другу: игра переделывает второй — модель сцену не считает
+        assert!(rejected(serde_json::json!([a, ug(y, "input", 3.5, 0.5, "west")])).contains("не поддержан моделью"));
+        assert!(rejected(serde_json::json!([ug(y, "output", 0.5, 0.5, "west"), ug(y, "output", 3.5, 0.5, "east")])).contains("не поддержан моделью"));
+        // состояние сразу после постройки подземок не сверено
+        let mut sc = scene(serde_json::json!([a, c]));
+        sc.warmup = Some(60);
+        assert!(build(&sc, Prototypes::bundled()).is_err());
+    }
+
+    /// Стыки подземки: лента за выходом и лента навстречу выходу не соединяются; сбоку подземка
+    /// принимает одну полосу источника (вход — дальнюю от своего переднего края, в 60; выход —
+    /// ближнюю, в 67), вторая полоса источника остаётся без выхода.
+    #[test]
+    fn underground_links() {
+        let y = "underground-belt";
+        let belt = |x: f64, yy: f64, d: &str| serde_json::json!({"name": "transport-belt", "position": [x, yy], "direction": d});
+        let w = build(
+            &scene(serde_json::json!([
+                ug(y, "input", 0.5, 0.5, "east"),   // 0
+                ug(y, "output", 2.5, 0.5, "east"),  // 1
+                belt(1.5, 0.5, "east"),             // 2: за выходом — тупик
+                belt(0.5, -0.5, "south"),           // 3: слева от входа
+                belt(2.5, 1.5, "north"),            // 4: справа от выхода
+                belt(3.5, 0.5, "west"),             // 5: навстречу выходу
+            ])),
+            Prototypes::bundled(),
+        )
+        .unwrap();
+        let line = |b: usize, lane: usize| &w.lines[w.belts[b].lanes[lane].line as usize];
+        assert!(line(2, 0).out.is_none() && line(2, 1).out.is_none());
+        assert!(line(1, 0).out.is_none() && line(5, 0).out.is_none());
+        // слева от входа: правая полоса источника — в левую полосу входа, точка 60
+        assert!(line(3, 0).out.is_none());
+        let sd = line(3, 1).side.expect("выход вбок");
+        assert_eq!((sd.belt, sd.lane, sd.off), (0, 0, 60));
+        // справа от выхода: правая полоса источника — в правую полосу выхода, точка 67
+        assert!(line(4, 0).out.is_none());
+        let sd = line(4, 1).side.expect("выход вбок");
+        assert_eq!((sd.belt, sd.lane, sd.off), (1, 1, 67));
+        // лента с выходом подземки сбоку и пустым задом — поворот; вход подземки ленту не питает
+        let w = build(
+            &scene(serde_json::json!([ug(y, "output", 0.5, 0.5, "east"), belt(1.5, 0.5, "south"), ug(y, "input", 2.5, 1.5, "east"), belt(1.5, 1.5, "south")])),
+            Prototypes::bundled(),
+        )
+        .unwrap();
+        assert_eq!((w.belts[1].shape, w.belts[3].shape), (2, 0));
+    }
+
+    /// Кладка на подземку: точка зажимается в надземную половину тайла (вход — задняя, выход —
+    /// передняя); позиция предмета на карте — как на ленте (пробы `ug-r-edge-*`, `ug-r-pick-*`).
+    #[test]
+    fn underground_drop_and_item_pos() {
+        let y = "underground-belt";
+        let w = build(&scene(serde_json::json!([ug(y, "input", 0.5, 0.5, "east"), ug(y, "output", 2.5, 0.5, "east")])), Prototypes::bundled()).unwrap();
+        let (i, o) = (&w.belts[0], &w.belts[1]);
+        // вход: центр тайла (128, 128); позади центра на 30 — 30; на «крыше» — 0; задний край — 127
+        assert_eq!(i.drop_lane_pos((98, 100)), (0, 30));
+        assert_eq!(i.drop_lane_pos((200, 128)), (1, 0));
+        assert_eq!(i.drop_lane_pos((0, 200)), (1, 127));
+        // выход: центр (640, 128); у переднего края — 1; впереди центра на 28 — 100; «крыша» — 127
+        assert_eq!(o.drop_lane_pos((767, 100)), (0, 1));
+        assert_eq!(o.drop_lane_pos((668, 100)), (0, 100));
+        assert_eq!(o.drop_lane_pos((520, 200)), (1, 127));
+        assert_eq!((i.item_pos(0, 0), i.item_pos(1, 127)), ((128, 68), (1, 188)));
+        assert_eq!((o.item_pos(0, 0), o.item_pos(1, 127)), ((768, 68), (641, 188)));
     }
 
     /// Точка выгрузки ровно на заднем крае тайла — кладка на 255 (пробы `edge-*`).

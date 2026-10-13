@@ -7,7 +7,8 @@
 //! `--belts-only` — сверять только ленты (правила лент отдельно от руки манипулятора);
 //! `--warmup N` — считать, что от постройки сцен до t = 0 прошло N тиков (поле `warmup` сцены).
 //!
-//! Вид расхождения — «сущность/поле» (`belt/lines`, `inserter/hand`, `chest/slots`, ...). По
+//! Вид расхождения — «сущность/поле» (`belt/lines`, `belt/under` — подземная часть подземки,
+//! `inserter/hand`, `chest/slots`, ...). По
 //! каждому виду печатается число сцен и до трёх минимальных примеров (минимальный — с
 //! наименьшим числом сущностей).
 
@@ -51,6 +52,11 @@ fn first_diff(want: &TickDump, got: &TickDump) -> Option<(String, String)> {
     }
     for (w, g) in want.belts.iter().zip(&got.belts) {
         if w != g {
+            if w.lines == g.lines && w.pos == g.pos {
+                // отличается только подземная часть подземки (линии 3 и 4)
+                let u = |b: &factorio_distributed_core::world::layout::DumpBelt| b.under.as_ref().map_or("нет".to_string(), lines_str);
+                return Some(("belt/under".into(), format!("подземка {} под землёй: ожидалось {}, получилось {}", tile(&w.pos), u(w), u(g))));
+            }
             return Some(("belt/lines".into(), format!("лента {}: ожидалось {}, получилось {}", tile(&w.pos), lines_str(&w.lines), lines_str(&g.lines))));
         }
     }

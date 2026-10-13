@@ -37,6 +37,21 @@ pub const LANE_OFFSET: Fx = 60;
 /// эталону — при переходе на следующий тайл `p` прибавляет 256.
 pub const TILE_LANE_LEN: Fx = 256;
 
+/// Длина полосы надземной части подземной ленты: половина тайла (число игры: `line_length`
+/// линий 1 и 2 подземки — 0.5). Подземная часть пары — `D · 256`, где `D` — расстояние между
+/// тайлами входа и выхода.
+pub const UG_SURFACE_LEN: Fx = 128;
+
+/// Наибольший `max_distance` прототипа подземки, который модель считает: подземная часть пары —
+/// один кусок линии, а линия не длиннее 200 тайлов (предел линии ленты). В игре без модов — 11.
+pub const UG_MAX_DISTANCE: u32 = 200;
+
+/// Боковая загрузка в подземку («половинная»): принимается одна полоса источника, точка — от
+/// начала надземной части. В выход — 67 (та же точка, что у ленты), во вход — 60 (точка 188 ленты
+/// минус 128: надземная часть входа — задняя половина тайла).
+pub const UG_SIDE_OUT: Fx = 67;
+pub const UG_SIDE_IN: Fx = 60;
+
 /// Длины полос поворота: внутренняя 106, внешняя 295 (четверти дуг радиусов 0.265625 и
 /// 0.734375 тайла, усечённые к 1/256; сумма точных длин — π/2). Число игры: `line_length`
 /// полос поворота 0.4140625 и 1.15234375 (`(end − start)/256`); в эталоне `p` на угловом тайле
@@ -91,6 +106,17 @@ pub struct InserterProto {
     pub starting_distance: Sf,
 }
 
+/// Подземная лента (`underground-belt` в data.raw): скорость и предел дальности пары.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, serde::Serialize)]
+pub struct UndergroundProto {
+    pub name: String,
+    /// `speed` (тайлов за тик) · 256 — как у ленты.
+    pub speed: Fx,
+    /// `max_distance` — наибольшее расстояние между центрами входа и выхода, тайлы
+    /// (между ними помещается `max_distance − 1` тайлов).
+    pub max_distance: u32,
+}
+
 /// Сундук (`container` в data.raw).
 #[derive(Clone, Debug, PartialEq, Eq, Hash, serde::Serialize)]
 pub struct ChestProto {
@@ -114,6 +140,8 @@ pub struct Prototypes {
     pub belts: BTreeMap<String, BeltProto>,
     pub inserters: BTreeMap<String, InserterProto>,
     pub chests: BTreeMap<String, ChestProto>,
+    /// Подземные ленты; раздела может не быть в старой выжимке (тогда пусто).
+    pub undergrounds: BTreeMap<String, UndergroundProto>,
     pub stack_size: BTreeMap<String, u32>,
     pub unsupported: BTreeMap<String, String>,
 }
@@ -201,6 +229,31 @@ impl Prototypes {
             out.belts.insert(name.clone(), BeltProto { name: name.clone(), speed: Fx::try_from(v as i64).map_err(|e| format!("{who}: speed: {e}"))? });
         }
 
+        if let Some(ug) = d.get("underground-belt").and_then(Value::as_object) {
+            for (name, p) in ug {
+                let who = format!("underground-belt/{name}");
+                let v = num(p, "speed", &who)? * TILE as f64;
+                let md = num(p, "max_distance", &who)?;
+                if v.fract() != 0.0 || !(v > 0.0 && v <= ITEM_SPACING as f64) {
+                    out.unsupported.insert(name.clone(), format!("скорость {} вне (0, {}] или не кратна 1/256 тайла за тик", v, ITEM_SPACING));
+                    continue;
+                }
+                if md.fract() != 0.0 || !(0.0..=255.0).contains(&md) {
+                    return Err(format!("{who}: плохой max_distance"));
+                }
+                // подземная часть пары — один кусок линии; длиннее предела линии с игрой не сверено
+                if md > UG_MAX_DISTANCE as f64 {
+                    out.unsupported.insert(name.clone(), format!("max_distance {md} больше {UG_MAX_DISTANCE}: пара длиннее предела линии не сверена"));
+                    continue;
+                }
+                if !fits_one_tile(p, &who)? {
+                    out.unsupported.insert(name.clone(), "не 1×1".into());
+                    continue;
+                }
+                out.undergrounds.insert(name.clone(), UndergroundProto { name: name.clone(), speed: v as Fx, max_distance: md as u32 });
+            }
+        }
+
         for (name, p) in obj("inserter")? {
             let who = format!("inserter/{name}");
             let energy = p["energy_source"]["type"].as_str().unwrap_or("?");
@@ -282,6 +335,19 @@ impl Prototypes {
 mod tests {
     use super::*;
 
+    /// Подземка с пределом дальности больше предела линии — неподдержанный прототип (не ошибка
+    /// разбора): сцена с ней отклоняется при сборке.
+    #[test]
+    fn underground_reach_over_line_limit_is_unsupported() {
+        let src = include_str!("../../data/prototypes-m0.json");
+        let p = Prototypes::from_json(&src.replacen(r#""max_distance":9,"#, r#""max_distance":200,"#, 1)).unwrap();
+        assert_eq!(p.undergrounds["express-underground-belt"].max_distance, 200);
+        let p = Prototypes::from_json(&src.replacen(r#""max_distance":9,"#, r#""max_distance":201,"#, 1)).unwrap();
+        assert!(!p.undergrounds.contains_key("express-underground-belt"));
+        assert!(p.unsupported["express-underground-belt"].contains("max_distance"));
+        assert!(Prototypes::from_json(&src.replacen(r#""max_distance":9,"#, r#""max_distance":256,"#, 1)).is_err());
+    }
+
     /// Выжимка из репо разбирается, и в ней то, что нужно M0, с числами `data.raw`.
     #[test]
     fn bundled_m0() {
@@ -302,6 +368,11 @@ mod tests {
             assert!(p.unsupported.contains_key(n), "{n}");
         }
         assert_eq!(p.chests["wooden-chest"].slots, 16);
+        let ug = |n: &str| (p.undergrounds[n].speed, p.undergrounds[n].max_distance);
+        assert_eq!(ug("underground-belt"), (8, 5));
+        assert_eq!(ug("fast-underground-belt"), (16, 7));
+        assert_eq!(ug("express-underground-belt"), (24, 9));
+        assert_eq!(ug("turbo-underground-belt"), (32, 11));
         assert_eq!(p.stack_size["iron-plate"], 100);
         assert_eq!(p.stack_size["electronic-circuit"], 200);
     }
@@ -345,6 +416,11 @@ mod tests {
             assert_eq!(turn_from_f64(r["rotation_speed"].as_f64().unwrap()), i.rotation_speed, "{}", i.name);
             assert_eq!(Sf::from_f64(r["extension_speed"].as_f64().unwrap()), i.extension_speed, "{}", i.name);
             assert_eq!(Sf::from_f64(r["starting_distance"].as_f64().unwrap_or(0.7)), i.starting_distance, "{}", i.name);
+        }
+        for u in p.undergrounds.values() {
+            let r = &d["underground-belt"][&u.name];
+            assert_eq!(r["speed"].as_f64().unwrap() * 256.0, u.speed as f64, "{}", u.name);
+            assert_eq!(r["max_distance"].as_u64().unwrap() as u32, u.max_distance, "{}", u.name);
         }
         for c in p.chests.values() {
             assert_eq!(d["container"][&c.name]["inventory_size"].as_u64().unwrap() as u32, c.slots, "{}", c.name);

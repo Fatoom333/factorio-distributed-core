@@ -18,6 +18,10 @@
 //!   вставка как у манипулятора, сильная отметка (docs/mechanics/belts.md, «Повороты, кольца,
 //!   боковая загрузка»).
 //!
+//! - Подземная лента — три тайла своей линии: надземная половина входа (128), подземная часть
+//!   пары (`D · 256`) и надземная половина выхода (128); движутся предметы по ним так же, как по
+//!   лентам (docs/mechanics/belts.md, «Подземные ленты»; сборка — `layout.rs`).
+//!
 //! Полоса 0 — левая по ходу ленты (`get_transport_line(1)`), полоса 1 — правая.
 
 use serde::Serialize;
@@ -911,6 +915,10 @@ impl World {
     /// [`World::line_key`].
     pub(super) fn chain_head(&self, li: u32) -> u32 {
         let mut cur = li;
+        // Предел шагов: в цепочке не больше линий, чем их всего. Обход, который не вернулся к
+        // `li` и не дошёл до конца, значит, что в линию входят напрямую две линии (сборка сцены
+        // это отклоняет, `layout.rs`); здесь — паника вместо вечного цикла.
+        let mut steps = 0usize;
         loop {
             let l = &self.lines[cur as usize];
             match (l.out, l.side) {
@@ -918,6 +926,8 @@ impl World {
                 (Some(o), None) => cur = o,
                 _ => return cur,
             }
+            steps += 1;
+            assert!(steps <= self.lines.len(), "цепочка линий зациклена мимо своей линии: два прямых входа в одну линию");
         }
         let (mut best, mut key) = (li, self.line_key(li));
         let mut cur = self.lines[li as usize].out.expect("кольцо");
@@ -1006,7 +1016,11 @@ impl World {
         // тайлы цепочки от головы к хвосту
         let mut tiles: Vec<u32> = Vec::new();
         let mut cur = Some(head);
+        let mut steps = 0usize;
         while let Some(li) = cur {
+            // тот же предел, что в `chain_head`: связи «вход — выход» обязаны быть взаимными
+            steps += 1;
+            assert!(steps <= self.lines.len(), "цепочка линий зациклена: связи входа и выхода линий не взаимны");
             if let Some(i) = self.request_of(li) {
                 self.remerges.remove(i);
             }

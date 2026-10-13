@@ -66,17 +66,41 @@ pub fn diff(want: &TickDump, got: &TickDump) -> Option<String> {
     }
     for (w, g) in want.belts.iter().zip(&got.belts) {
         if w != g {
+            let f = |v: &Vec<crate::world::layout::DumpItem>| {
+                v.iter().map(|d| format!("{}@{}", d.item, d.p)).collect::<Vec<_>>().join(" ")
+            };
             for lane in 0..2 {
                 if w.lines[lane] != g.lines[lane] {
-                    let f = |v: &Vec<crate::world::layout::DumpItem>| {
-                        v.iter().map(|d| format!("{}@{}", d.item, d.p)).collect::<Vec<_>>().join(" ")
-                    };
                     return Some(format!(
                         "лента {} полоса {}: ожидалось [{}], получилось [{}]",
                         tile(&w.pos),
                         lane,
                         f(&w.lines[lane]),
                         f(&g.lines[lane])
+                    ));
+                }
+            }
+            // подземная часть подземки (линии 3 и 4 сущности)
+            match (&w.under, &g.under) {
+                (Some(wu), Some(gu)) => {
+                    for lane in 0..2 {
+                        if wu[lane] != gu[lane] {
+                            return Some(format!(
+                                "подземка {} под землёй, полоса {}: ожидалось [{}], получилось [{}]",
+                                tile(&w.pos),
+                                lane,
+                                f(&wu[lane]),
+                                f(&gu[lane])
+                            ));
+                        }
+                    }
+                }
+                (None, None) => {}
+                (wu, _) => {
+                    return Some(format!(
+                        "лента {}: в эталоне {}, в модели наоборот",
+                        tile(&w.pos),
+                        if wu.is_some() { "подземка (есть under)" } else { "обычная лента (нет under)" }
                     ));
                 }
             }
@@ -182,19 +206,80 @@ fn exact_pt(v: &serde_json::Value) -> Result<(crate::world::fixed::Fx, crate::wo
 /// `drop_position` манипуляторов, `get_line_item_position(линия, p)` лент.
 pub fn check_geometry(world: &World, info: &serde_json::Value) -> Result<(), String> {
     let arr = info.as_array().ok_or("scene_info: не массив")?;
+    use crate::world::TileKind;
+    // тайлы сцены в порядке сцены (скрытые подземные части пар — не сущности сцены)
+    let tiles: Vec<usize> = (0..world.belts.len()).filter(|&b| world.belts[b].kind != TileKind::Under).collect();
     let (mut bi, mut ii) = (0usize, 0usize);
     for (k, e) in arr.iter().enumerate() {
         let at = |m: String| format!("сущность {k} ({}): {m}", e["name"]);
         let pos = exact_pt(&e["position"]).map_err(at)?;
         if let Some(lanes) = e.get("lanes") {
-            let b = world.belts.get(bi).ok_or_else(|| at("в модели меньше лент".into()))?;
+            let b = tiles.get(bi).map(|&b| &world.belts[b]).ok_or_else(|| at("в модели меньше лент".into()))?;
             bi += 1;
+            if b.kind != TileKind::Belt {
+                return Err(at("в модели на этом месте подземка".into()));
+            }
             if b.pos != pos {
                 return Err(at(format!("позиция: игра {pos:?}, модель {:?}", b.pos)));
             }
             for lane in 0..2 {
                 for pt in lanes[lane].as_array().ok_or_else(|| at("lanes".into()))? {
                     let p = exact_fx(&pt[0]).map_err(at)?;
+                    // Точку за концом полосы (`p` не меньше её длины) игра прижимает к последней
+                    // точке полосы, `длина − 1`: так у внутренней полосы поворота (длина 106: точки
+                    // 128 и 192) и у надземной половины подземки (длина 128). Правило одно.
+                    let p = p.min(b.lanes[lane].len - 1);
+                    let game = (exact_fx(&pt[1]).map_err(at)?, exact_fx(&pt[2]).map_err(at)?);
+                    let model = b.item_pos(lane, p);
+                    if game != model {
+                        return Err(at(format!(
+                            "get_line_item_position({}, {}): игра {game:?}, модель {model:?}",
+                            lane + 1,
+                            p as f64 / 256.0
+                        )));
+                    }
+                }
+            }
+        } else if let Some(lines) = e.get("ug_lines") {
+            // Подземка: вид, пара, длины линий (надземные — 0.5 тайла, подземная часть у входа с
+            // парой — расстояние до выхода) и точки надземных линий.
+            let b = tiles.get(bi).map(|&b| &world.belts[b]).ok_or_else(|| at("в модели меньше лент".into()))?;
+            bi += 1;
+            let kind = match e["ug_type"].as_str() {
+                Some("input") => TileKind::UgIn,
+                Some("output") => TileKind::UgOut,
+                _ => return Err(at("ug_type".into())),
+            };
+            if b.kind != kind || b.pos != pos {
+                return Err(at(format!("подземка: игра {:?} {pos:?}, модель {:?} {:?}", e["ug_type"], b.kind, b.pos)));
+            }
+            let pair = e.get("pair").filter(|p| !p.is_null()).map(exact_pt).transpose().map_err(at)?;
+            if kind == TileKind::UgIn {
+                // пара в модели — выход, в который впадает подземная часть входа
+                let model = (b.under != crate::world::wake::NONE).then(|| {
+                    let u = &world.belts[b.under as usize].lanes[0];
+                    let (ux, uy) = b.dir.unit();
+                    (b.pos.0 + ux * u.len, b.pos.1 + uy * u.len)
+                });
+                if pair != model {
+                    return Err(at(format!("пара: игра {pair:?}, модель {model:?}")));
+                }
+            }
+            for lane in 0..2 {
+                let l = &lines[lane];
+                let len = exact_fx(&l["length"]).map_err(at)?;
+                if len != b.lanes[lane].len {
+                    return Err(at(format!("длина линии {}: игра {len}, модель {}", lane + 1, b.lanes[lane].len)));
+                }
+                if b.under != crate::world::wake::NONE {
+                    let (g, m) = (exact_fx(&lines[lane + 2]["length"]).map_err(at)?, world.belts[b.under as usize].lanes[lane].len);
+                    if g != m {
+                        return Err(at(format!("длина подземной линии {}: игра {g}, модель {m}", lane + 3)));
+                    }
+                }
+                for pt in l["points"].as_array().ok_or_else(|| at("ug_lines.points".into()))? {
+                    // как у ленты: точка за концом полосы прижата к `длина − 1`
+                    let p = exact_fx(&pt[0]).map_err(at)?.min(len - 1);
                     let game = (exact_fx(&pt[1]).map_err(at)?, exact_fx(&pt[2]).map_err(at)?);
                     let model = b.item_pos(lane, p);
                     if game != model {
@@ -232,7 +317,7 @@ pub fn check_geometry(world: &World, info: &serde_json::Value) -> Result<(), Str
             }
         }
     }
-    if bi != world.belts.len() || ii != world.inserters.len() {
+    if bi != tiles.len() || ii != world.inserters.len() {
         return Err("scene_info: число лент/манипуляторов не совпало с моделью".into());
     }
     Ok(())
@@ -247,5 +332,27 @@ mod name_tests {
         assert!(ok("s101-00774") && ok("a_b-c9"));
         assert!(!ok("") && !ok("A") && !ok("a/b") && !ok("..") && !ok("a b") && !ok(&"a".repeat(101)));
         assert!(!ok("con") && !ok("com1") && !ok("lpt9") && ok("com0") && ok("com10") && ok("console"));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Расхождение только в подземной части подземки называется своим именем, а не «позиция».
+    #[test]
+    fn diff_names_underground_part() {
+        let line = |under: &str| -> TickDump {
+            serde_json::from_str(&format!(
+                r#"{{"t":5,"belts":[{{"pos":[1.5,0.5],"lines":[[],[]],"ug":"input","under":{under}}}],"inserters":[],"chests":[]}}"#
+            ))
+            .unwrap()
+        };
+        let (want, got) = (line(r#"[[],[{"item":"coal","p":508}]]"#), line(r#"[[],[{"item":"coal","p":504}]]"#));
+        assert_eq!(diff(&want, &want), None);
+        let d = diff(&want, &got).unwrap();
+        assert!(d.contains("под землёй") && d.contains("coal@508") && d.contains("coal@504"), "{d}");
+        let belt: TickDump = serde_json::from_str(r#"{"t":5,"belts":[{"pos":[1.5,0.5],"lines":[[],[]]}],"inserters":[],"chests":[]}"#).unwrap();
+        assert!(diff(&want, &belt).unwrap().contains("подземка"));
     }
 }

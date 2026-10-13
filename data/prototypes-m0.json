@@ -7,6 +7,12 @@
     "transport-belt": {"collision_box":[[-0.4,-0.4],[0.4,0.4]],"speed":0.03125},
     "turbo-transport-belt": {"collision_box":[[-0.4,-0.4],[0.4,0.4]],"speed":0.125}
   },
+  "underground-belt": {
+    "express-underground-belt": {"collision_box":[[-0.4,-0.4],[0.4,0.4]],"max_distance":9,"speed":0.09375},
+    "fast-underground-belt": {"collision_box":[[-0.4,-0.4],[0.4,0.4]],"max_distance":7,"speed":0.0625},
+    "turbo-underground-belt": {"collision_box":[[-0.4,-0.4],[0.4,0.4]],"max_distance":11,"speed":0.125},
+    "underground-belt": {"collision_box":[[-0.4,-0.4],[0.4,0.4]],"max_distance":5,"speed":0.03125}
+  },
   "inserter": {
     "bulk-inserter": {"bulk":true,"chases_belt_items":true,"collision_box":[[-0.15,-0.15],[0.15,0.15]],"energy_source":{"type":"electric"},"extension_speed":0.1,"grab_less_to_match_belt_stack":false,"insert_position":[0,1.2],"max_belt_stack_size":1,"pickup_position":[0,-1],"rotation_speed":0.04,"stack_size_bonus":0,"starting_distance":0.85,"uses_inserter_stack_size_bonus":true,"wait_for_full_hand":false},
     "burner-inserter": {"bulk":false,"chases_belt_items":true,"collision_box":[[-0.15,-0.15],[0.15,0.15]],"energy_source":{"type":"burner"},"extension_speed":0.035,"grab_less_to_match_belt_stack":false,"insert_position":[0,1.2],"max_belt_stack_size":1,"pickup_position":[0,-1],"rotation_speed":0.013,"stack_size_bonus":0,"starting_distance":0.7,"uses_inserter_stack_size_bonus":true,"wait_for_full_hand":false},

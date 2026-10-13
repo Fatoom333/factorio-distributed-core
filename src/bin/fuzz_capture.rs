@@ -4,7 +4,7 @@
 //!   cargo run --release --bin fuzz_capture -- --seed 1 --count 1000 --batch 100
 //!   cargo run --release --bin fuzz_capture -- --scenes tests/fidelity --out /tmp/ref
 //!
-//! Откуда сцены: генератор (--seed, --count, --turns, --no-vectors) или папка (--scenes DIR,
+//! Откуда сцены: генератор (--seed, --count, --turns, --underground, --no-vectors) или папка (--scenes DIR,
 //! файлы *.scene.json). Куда: --out DIR, иначе `$FD_RUNS_DIR/<seed>` (FD_RUNS_DIR по умолчанию
 //! `./fuzz-runs`; папка прогонов лежит вне git). Уже снятые сцены (есть и .scene.json, и
 //! .dump.jsonl) пропускаются, поэтому прогон можно продолжать.

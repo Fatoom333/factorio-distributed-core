@@ -6,7 +6,7 @@
 //!       --source "factorio --dump-data, Factorio 2.0.77, моды: base space-age quality elevated-rails"
 //!
 //! Пересобрать под другой набор модов: снять `--dump-data` с этими модами и запустить заново.
-//! Берутся все прототипы типов `transport-belt`, `inserter`, `container` и `stack_size` всех
+//! Берутся все прототипы типов `transport-belt`, `underground-belt`, `inserter`, `container` и `stack_size` всех
 //! предметов (любой тип с полем `stack_size`). Поля, которых нет в `data.raw`, записываются
 //! значением по умолчанию из документации прототипов игры (`doc-html/prototypes/*.html`), чтобы
 //! файл был самодостаточным. Что из этого модель умеет, решает `Prototypes` (неподдержанное —
@@ -29,6 +29,8 @@ type Fields = &'static [(&'static str, Option<&'static str>)];
 /// Поля прототипа с умолчаниями (`None` — обязательное поле). Источник умолчаний —
 /// `doc-html/prototypes/<Тип>Prototype.html` той же версии игры.
 const BELT_FIELDS: Fields = &[("speed", None), ("collision_box", Some("[[0,0],[0,0]]"))];
+const UNDERGROUND_FIELDS: Fields =
+    &[("speed", None), ("max_distance", None), ("collision_box", Some("[[0,0],[0,0]]"))];
 const INSERTER_FIELDS: Fields = &[
     ("rotation_speed", None),
     ("extension_speed", None),
@@ -69,8 +71,12 @@ fn main() -> R<()> {
         return Err("нужно: --in <data-raw-dump.json> --out <файл> --source \"<версия игры и моды>\"".into());
     };
     let d: Value = serde_json::from_str(&std::fs::read_to_string(&inp)?)?;
-    let sections: [(&str, Fields); 3] =
-        [("transport-belt", BELT_FIELDS), ("inserter", INSERTER_FIELDS), ("container", CONTAINER_FIELDS)];
+    let sections: [(&str, Fields); 4] = [
+        ("transport-belt", BELT_FIELDS),
+        ("underground-belt", UNDERGROUND_FIELDS),
+        ("inserter", INSERTER_FIELDS),
+        ("container", CONTAINER_FIELDS),
+    ];
 
     // Формат: по строке на прототип — файл маленький и читается глазами / в diff.
     let mut s = String::new();

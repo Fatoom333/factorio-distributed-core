@@ -12,6 +12,7 @@
 use std::path::{Path, PathBuf};
 
 use factorio_distributed_core::fidelity;
+use factorio_distributed_core::world::proto::Prototypes;
 use factorio_distributed_core::world::World;
 
 const SCENES: &[&str] = &[
@@ -394,11 +395,142 @@ const PROBES: &[&str] = &[
     "rm-ctl-u-p56",
     "rm-ctl16-p56",
     "rm-ctl16-u-p56",
+    // --- M0.5, подземные ленты (docs/mechanics/belts.md, «Подземные ленты») ---
+    // первая серия (bench/m05-probes/gen_underground.py): длина пары, направления, очередь, боковая загрузка, манипуляторы, без пары, стыки
+    "ug-d1",
+    "ug-d3",
+    "ug-d5",
+    "ug-d6-nopair",
+    "ug-fast-d7",
+    "ug-turbo-d11",
+    "ug-dir-s",
+    "ug-dir-n",
+    "ug-queue",
+    "ug-restart",
+    "ug-side-in-l",
+    "ug-side-in-r",
+    "ug-side-out-l",
+    "ug-side-out-r",
+    "ug-take-in",
+    "ug-drop-in",
+    "ug-drop-in-back",
+    "ug-drop-out",
+    "ug-lone-in",
+    "ug-lone-out",
+    "ug-mix-tier",
+    "ug-chain2",
+    "ug-nest",
+    "ug-block-same",
+    "ug-out-side",
+    // серия разбора правил: линии и очереди, захват, отметки, поиск пары, без пары, боковая загрузка, края тайла и «крыша»
+    // (сцены edge-*, weak-*, strong-* — с кастомными точками выгрузки)
+    "ug-r-behind-out",
+    "ug-r-c-d2",
+    "ug-r-c-d5",
+    "ug-r-c-f4",
+    "ug-r-c-out",
+    "ug-r-edge-e-in-axis",
+    "ug-r-edge-e-in-front",
+    "ug-r-edge-e-in-fronthalf",
+    "ug-r-edge-e-in-rear",
+    "ug-r-edge-e-out-front",
+    "ug-r-edge-e-out-rear",
+    "ug-r-edge-n-in-front",
+    "ug-r-edge-n-in-rear",
+    "ug-r-edge-n-out-axis",
+    "ug-r-edge-n-out-front",
+    "ug-r-edge-n-out-rear",
+    "ug-r-edge-s-in-front",
+    "ug-r-edge-s-in-rear",
+    "ug-r-edge-s-out-front",
+    "ug-r-edge-s-out-rear",
+    "ug-r-edge-s-out-rearhalf",
+    "ug-r-edge-w-in-front",
+    "ug-r-edge-w-in-mid",
+    "ug-r-edge-w-in-rear",
+    "ug-r-edge-w-out-front",
+    "ug-r-edge-w-out-mid",
+    "ug-r-edge-w-out-rear",
+    "ug-r-headon-in",
+    "ug-r-lane-e-in-l",
+    "ug-r-lane-e-in-r",
+    "ug-r-lane-n-out-r",
+    "ug-r-lane-s-out-l",
+    "ug-r-lane-s-out-r",
+    "ug-r-lane-w-in-r",
+    "ug-r-mix-32-8-24",
+    "ug-r-mix-8-16-8",
+    "ug-r-out-to-side",
+    "ug-r-out-to-turn",
+    "ug-r-pair-back-out",
+    "ug-r-pair-cross-same",
+    "ug-r-pair-exp-far10",
+    "ug-r-pair-exp-max9",
+    "ug-r-pair-far6",
+    "ug-r-pair-fast-far8",
+    "ug-r-pair-in-in-out",
+    "ug-r-pair-in-out-out",
+    "ug-r-pair-interleave",
+    "ug-r-pair-max5",
+    "ug-r-pair-other-tier",
+    "ug-r-pair-over-belt",
+    "ug-r-pair-turbo-far12",
+    "ug-r-pick-both",
+    "ug-r-pick-in",
+    "ug-r-pick-out",
+    "ug-r-side-in-left",
+    "ug-r-side-in-left-fast",
+    "ug-r-side-in-left-str",
+    "ug-r-side-in-right",
+    "ug-r-side-in-right-d4",
+    "ug-r-side-out-left",
+    "ug-r-side-out-left-slow",
+    "ug-r-side-out-right",
+    "ug-r-side-out-right-str",
+    "ug-r-solo-in",
+    "ug-r-solo-out",
+    "ug-r-strong-d1",
+    "ug-r-strong-d2",
+    "ug-r-weak-d2",
+    "ug-r-weak-d3",
+    // вторая серия (тот же генератор, `probes_x`): поворот во вход, выход в бок подземки, два боковых входа, сильная отметка
+    // с очередью, кольцо через подземку, сон манипуляторов на тайлах подземки, захват наискосок, отметка перед входом
+    "ug-x-drop-in-q",
+    "ug-x-lane-diag-in-n",
+    "ug-x-lane-diag-in-s",
+    "ug-x-lane-diag-out-n",
+    "ug-x-lane-diag-out-s",
+    "ug-x-out-into-in",
+    "ug-x-out-into-out",
+    "ug-x-ring",
+    "ug-x-ring-full",
+    "ug-x-ring-rev",
+    "ug-x-side-in-both",
+    "ug-x-side-in-both-back",
+    "ug-x-side-in-both-q",
+    "ug-x-side-in-q-sink",
+    "ug-x-side-out-q-sink",
+    "ug-x-take-in-out",
+    "ug-x-take-out-q",
+    "ug-x-turn-into-in",
+    "ug-x-turn-into-in-q",
+    "ug-x-weak-before-d1",
+    "ug-x-weak-before-d2",
+    "ug-x-weak-before-d3",
+    // третья серия (`probes_y`): вход подземки не «питает» ленту перед собой (форма этой ленты);
+    // кольцо, в котором первой построена подземка (вход или выход)
+    "ug-y-in-no-feed",
+    "ug-y-in-no-feed-lone",
+    "ug-y-in-no-feed-side",
+    "ug-y-ring-in-first",
+    "ug-y-ring-in-first-full",
+    "ug-y-ring-out-first",
+    "ug-y-ring-out-first-full",
 ];
 
 /// Пробы с известным расхождением (см. docs/model-fidelity.md). Сейчас таких нет: `edge-lat-far` и
 /// `edge-w-tail` (выгрузка на край тайла без ленты — это выгрузка на землю) совпали после модели
-/// земли.
+/// земли, пробы подземных лент `ug-*` — после модели подземок.
 const PROBES_KNOWN: &[&str] = &[];
 
 fn dir() -> PathBuf {
@@ -470,6 +602,27 @@ fn probes_match() {
     let d = dir().join("probes");
     let errs: Vec<String> = PROBES.iter().filter_map(|n| compare(&d, n).err()).collect();
     assert!(errs.is_empty(), "расхождения в пробах:\n{}", errs.join("\n"));
+}
+
+/// Геометрия модели против чисел игры: ответы операции мода `scene_info`, сохранённые в
+/// `tests/fidelity/info/` (сцены — одноимённые пробы). Сверяются позиции, точки полос лент (в том
+/// числе на повороте), вид, пара и длины линий подземок — то же, что `scene_capture` сверяет на
+/// живой игре перед съёмкой.
+#[test]
+fn geometry_matches_scene_info() {
+    let mut n = 0;
+    for e in std::fs::read_dir(dir().join("info")).unwrap().filter_map(|e| e.ok()) {
+        let file = e.file_name().to_str().unwrap().to_string();
+        let Some(name) = file.strip_suffix(".info.json") else { continue };
+        let scene = fidelity::load_scene(&dir().join("probes").join(format!("{name}.scene.json"))).unwrap();
+        let world = World::from_scene(&scene, Prototypes::bundled()).unwrap();
+        let info: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(e.path()).unwrap()).unwrap();
+        if let Err(err) = fidelity::check_geometry(&world, &info) {
+            panic!("{name}: {err}");
+        }
+        n += 1;
+    }
+    assert!(n >= 3, "в tests/fidelity/info нет ответов scene_info");
 }
 
 #[test]
